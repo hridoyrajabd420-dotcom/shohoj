@@ -1,0 +1,6 @@
+{
+  "name": "সহজ ব্যবসা - Shohoj Bebsha",
+  "description": "সহজভাবে ব্যবসা পরিচালনা করুন - Manage Your Business, Simply. A modern business management platform for inventory, sales, expenses, customers, and profit tracking with Supabase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

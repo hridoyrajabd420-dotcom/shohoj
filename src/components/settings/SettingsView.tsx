@@ -1,0 +1,758 @@
+import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { getSupabaseCredentials, saveSupabaseCredentials, clearSupabaseCredentials, getSupabaseClient } from '../../lib/supabase';
+import { useToast } from '../../context/ToastContext';
+import {
+  Database,
+  Copy,
+  Check,
+  ShieldCheck,
+  AlertTriangle,
+  RefreshCw,
+  Terminal,
+  ExternalLink,
+  Layers,
+  Sparkles,
+} from 'lucide-react';
+
+export const SettingsView: React.FC = () => {
+  const { isConfigured, checkConfiguration } = useAuth();
+  const { showToast } = useToast();
+
+  const creds = getSupabaseCredentials();
+  const [url, setUrl] = useState(creds.url || '');
+  const [anonKey, setAnonKey] = useState(creds.anonKey || '');
+  const [copiedFull, setCopiedFull] = useState(false);
+  const [copiedPro, setCopiedPro] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleSaveCredentials = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!url.trim() || !anonKey.trim()) {
+      showToast('উভয় Supabase URL এবং Anon Key পূরণ করুন', 'error');
+      return;
+    }
+
+    saveSupabaseCredentials(url.trim(), anonKey.trim());
+    checkConfiguration();
+    showToast('Supabase ক্রেডেনশিয়াল সংরক্ষিত হয়েছে। রিফ্রেশ করা হচ্ছে...', 'success');
+    window.location.reload();
+  };
+
+  const handleClear = () => {
+    clearSupabaseCredentials();
+    setUrl('');
+    setAnonKey('');
+    checkConfiguration();
+    showToast('ক্রেডেনশিয়াল মুছে ফেলা হয়েছে', 'info');
+  };
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+
+    const client = getSupabaseClient();
+    if (!client) {
+      setTestResult({ success: false, message: 'Supabase ক্লায়েন্ট ইনিশিয়ালাইজ করা যায়নি। URL ও Key যাচাই করুন।' });
+      setTesting(false);
+      return;
+    }
+
+    try {
+      // Test by querying public tables
+      const { error } = await client.from('products').select('count', { count: 'exact', head: true });
+      if (error) {
+        if (error.code === '42P01') {
+          setTestResult({
+            success: false,
+            message: 'সংযোগ সফল হয়েছে কিন্তু ডেটাবেজ টেবিলগুলো এখনো তৈরি করা হয়নি। অনুগ্রহ করে নিচের SQL স্ক্রিপ্টটি Supabase SQL Editor এ রান করুন।',
+          });
+        } else {
+          setTestResult({
+            success: false,
+            message: `ত্রুটি: ${error.message} (Code: ${error.code})`,
+          });
+        }
+      } else {
+        setTestResult({
+          success: true,
+          message: 'অসাধারণ! Supabase ডেটাবেজ এবং আরএলএস সফলভাবে সংযুক্ত রয়েছে।',
+        });
+      }
+    } catch (err: unknown) {
+      setTestResult({
+        success: false,
+        message: err instanceof Error ? err.message : 'সংযোগ ব্যর্থ হয়েছে',
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const fullSqlContent = `-- ==========================================
+-- SHOHOJ BEBSHA - FULL SUPABASE DATABASE SCHEMA
+-- PART 1 (FREE) + PART 2 (PRO)
+-- ==========================================
+
+-- 1. Profiles Table with Plan Column
+create table if not exists public.profiles (
+  id uuid references auth.users on delete cascade primary key,
+  full_name text,
+  email text,
+  phone text,
+  business_name text,
+  business_type text default 'Retail',
+  plan text default 'FREE',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Ensure plan column exists if table was created in Part 1
+alter table public.profiles add column if not exists plan text default 'FREE';
+
+-- 2. Products Table
+create table if not exists public.products (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  name text not null,
+  sku text,
+  purchase_price numeric not null default 0,
+  selling_price numeric not null default 0,
+  stock_quantity integer not null default 0,
+  low_stock_level integer not null default 5,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- 3. Customers Table
+create table if not exists public.customers (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  name text not null,
+  phone text,
+  email text,
+  address text,
+  total_purchase numeric not null default 0,
+  due_amount numeric not null default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- 4. Sales Table
+create table if not exists public.sales (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  product_id uuid references public.products(id) on delete set null,
+  customer_id uuid references public.customers(id) on delete set null,
+  quantity integer not null default 1,
+  selling_price numeric not null default 0,
+  total_amount numeric not null default 0,
+  payment_status text not null default 'paid',
+  sale_date date not null default current_date,
+  created_at timestamptz default now()
+);
+
+-- 5. Expenses Table
+create table if not exists public.expenses (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  category text not null,
+  amount numeric not null default 0,
+  description text,
+  date date not null default current_date,
+  created_at timestamptz default now()
+);
+
+-- ==========================================
+-- PART 2 (PRO) TABLES
+-- ==========================================
+
+-- 6. Suppliers Table
+create table if not exists public.suppliers (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  name text not null,
+  company text,
+  phone text,
+  email text,
+  address text,
+  total_purchased numeric not null default 0,
+  payable_amount numeric not null default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- 7. Purchases Table
+create table if not exists public.purchases (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  supplier_id uuid references public.suppliers(id) on delete set null,
+  product_id uuid references public.products(id) on delete set null,
+  quantity integer not null default 1,
+  unit_cost numeric not null default 0,
+  total_amount numeric not null default 0,
+  payment_status text not null default 'paid',
+  purchase_date date not null default current_date,
+  notes text,
+  created_at timestamptz default now()
+);
+
+-- 8. Invoices Table
+create table if not exists public.invoices (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  invoice_number text not null,
+  type text not null default 'INVOICE',
+  customer_id uuid references public.customers(id) on delete set null,
+  customer_name text not null,
+  customer_phone text,
+  customer_address text,
+  subtotal numeric not null default 0,
+  discount numeric not null default 0,
+  tax numeric not null default 0,
+  total_amount numeric not null default 0,
+  paid_amount numeric not null default 0,
+  due_amount numeric not null default 0,
+  status text not null default 'ISSUED',
+  issue_date date not null default current_date,
+  due_date date,
+  items jsonb not null default '[]'::jsonb,
+  notes text,
+  terms text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- 9. Payment Requests Table (Pro Upgrade & Manual Verification)
+create table if not exists public.payment_requests (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  plan_requested text not null default 'PRO',
+  billing_cycle text not null default 'monthly',
+  amount numeric not null default 499,
+  payment_method text not null,
+  sender_number text not null,
+  transaction_id text not null,
+  screenshot_url text,
+  status text not null default 'PENDING',
+  admin_notes text,
+  created_at timestamptz default now(),
+  reviewed_at timestamptz
+);
+
+-- 10. Business Settings Table
+create table if not exists public.business_settings (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null unique,
+  invoice_prefix text default 'INV-',
+  quotation_prefix text default 'QTN-',
+  next_invoice_number integer default 1001,
+  tax_rate numeric default 0,
+  default_notes text,
+  default_terms text,
+  bank_details jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- 11. Stock Adjustments Table
+create table if not exists public.stock_adjustments (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  product_id uuid references public.products(id) on delete cascade not null,
+  previous_quantity integer not null,
+  new_quantity integer not null,
+  adjusted_quantity integer not null,
+  reason text not null,
+  notes text,
+  date date not null default current_date,
+  created_at timestamptz default now()
+);
+
+-- 12. Customer Payments Table
+create table if not exists public.customer_payments (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  customer_id uuid references public.customers(id) on delete cascade not null,
+  amount numeric not null default 0,
+  payment_method text not null default 'CASH',
+  date date not null default current_date,
+  notes text,
+  created_at timestamptz default now()
+);
+
+-- 13. Supplier Payments Table
+create table if not exists public.supplier_payments (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  supplier_id uuid references public.suppliers(id) on delete cascade not null,
+  amount numeric not null default 0,
+  payment_method text not null default 'CASH',
+  date date not null default current_date,
+  notes text,
+  created_at timestamptz default now()
+);
+
+-- ==========================================
+-- ROW LEVEL SECURITY (RLS) POLICIES
+-- ==========================================
+alter table public.profiles enable row level security;
+alter table public.products enable row level security;
+alter table public.customers enable row level security;
+alter table public.sales enable row level security;
+alter table public.expenses enable row level security;
+alter table public.suppliers enable row level security;
+alter table public.purchases enable row level security;
+alter table public.invoices enable row level security;
+alter table public.payment_requests enable row level security;
+alter table public.business_settings enable row level security;
+alter table public.stock_adjustments enable row level security;
+alter table public.customer_payments enable row level security;
+alter table public.supplier_payments enable row level security;
+
+-- Profiles Policies
+create policy "Users view own profile" on public.profiles for select using (auth.uid() = id);
+create policy "Users insert own profile" on public.profiles for insert with check (auth.uid() = id);
+create policy "Users update own profile" on public.profiles for update using (auth.uid() = id);
+
+-- Products Policies
+create policy "Users view own products" on public.products for select using (auth.uid() = user_id);
+create policy "Users insert own products" on public.products for insert with check (auth.uid() = user_id);
+create policy "Users update own products" on public.products for update using (auth.uid() = user_id);
+create policy "Users delete own products" on public.products for delete using (auth.uid() = user_id);
+
+-- Customers Policies
+create policy "Users view own customers" on public.customers for select using (auth.uid() = user_id);
+create policy "Users insert own customers" on public.customers for insert with check (auth.uid() = user_id);
+create policy "Users update own customers" on public.customers for update using (auth.uid() = user_id);
+create policy "Users delete own customers" on public.customers for delete using (auth.uid() = user_id);
+
+-- Sales Policies
+create policy "Users view own sales" on public.sales for select using (auth.uid() = user_id);
+create policy "Users insert own sales" on public.sales for insert with check (auth.uid() = user_id);
+create policy "Users update own sales" on public.sales for update using (auth.uid() = user_id);
+create policy "Users delete own sales" on public.sales for delete using (auth.uid() = user_id);
+
+-- Expenses Policies
+create policy "Users view own expenses" on public.expenses for select using (auth.uid() = user_id);
+create policy "Users insert own expenses" on public.expenses for insert with check (auth.uid() = user_id);
+create policy "Users update own expenses" on public.expenses for update using (auth.uid() = user_id);
+create policy "Users delete own expenses" on public.expenses for delete using (auth.uid() = user_id);
+
+-- Suppliers Policies
+create policy "Users view own suppliers" on public.suppliers for select using (auth.uid() = user_id);
+create policy "Users insert own suppliers" on public.suppliers for insert with check (auth.uid() = user_id);
+create policy "Users update own suppliers" on public.suppliers for update using (auth.uid() = user_id);
+create policy "Users delete own suppliers" on public.suppliers for delete using (auth.uid() = user_id);
+
+-- Purchases Policies
+create policy "Users view own purchases" on public.purchases for select using (auth.uid() = user_id);
+create policy "Users insert own purchases" on public.purchases for insert with check (auth.uid() = user_id);
+create policy "Users update own purchases" on public.purchases for update using (auth.uid() = user_id);
+create policy "Users delete own purchases" on public.purchases for delete using (auth.uid() = user_id);
+
+-- Invoices Policies
+create policy "Users view own invoices" on public.invoices for select using (auth.uid() = user_id);
+create policy "Users insert own invoices" on public.invoices for insert with check (auth.uid() = user_id);
+create policy "Users update own invoices" on public.invoices for update using (auth.uid() = user_id);
+create policy "Users delete own invoices" on public.invoices for delete using (auth.uid() = user_id);
+
+-- Payment Requests Policies
+create policy "Users view own payment requests" on public.payment_requests for select using (auth.uid() = user_id);
+create policy "Users insert own payment requests" on public.payment_requests for insert with check (auth.uid() = user_id);
+
+-- Business Settings Policies
+create policy "Users view own business settings" on public.business_settings for select using (auth.uid() = user_id);
+create policy "Users insert own business settings" on public.business_settings for insert with check (auth.uid() = user_id);
+create policy "Users update own business settings" on public.business_settings for update using (auth.uid() = user_id);
+
+-- Stock Adjustments Policies
+create policy "Users view own stock adjustments" on public.stock_adjustments for select using (auth.uid() = user_id);
+create policy "Users insert own stock adjustments" on public.stock_adjustments for insert with check (auth.uid() = user_id);
+
+-- Customer Payments Policies
+create policy "Users view own customer payments" on public.customer_payments for select using (auth.uid() = user_id);
+create policy "Users insert own customer payments" on public.customer_payments for insert with check (auth.uid() = user_id);
+
+-- Supplier Payments Policies
+create policy "Users view own supplier payments" on public.supplier_payments for select using (auth.uid() = user_id);
+create policy "Users insert own supplier payments" on public.supplier_payments for insert with check (auth.uid() = user_id);
+`;
+
+  const proMigrationOnlySql = `-- ==========================================
+-- SHOHOJ BEBSHA - PART 2 PRO TABLES MIGRATION
+-- Run this if you already ran Part 1 schema previously
+-- ==========================================
+
+-- 1. Ensure plan column in profiles
+alter table public.profiles add column if not exists plan text default 'FREE';
+
+-- 2. Suppliers Table
+create table if not exists public.suppliers (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  name text not null,
+  company text,
+  phone text,
+  email text,
+  address text,
+  total_purchased numeric not null default 0,
+  payable_amount numeric not null default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- 3. Purchases Table
+create table if not exists public.purchases (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  supplier_id uuid references public.suppliers(id) on delete set null,
+  product_id uuid references public.products(id) on delete set null,
+  quantity integer not null default 1,
+  unit_cost numeric not null default 0,
+  total_amount numeric not null default 0,
+  payment_status text not null default 'paid',
+  purchase_date date not null default current_date,
+  notes text,
+  created_at timestamptz default now()
+);
+
+-- 4. Invoices Table
+create table if not exists public.invoices (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  invoice_number text not null,
+  type text not null default 'INVOICE',
+  customer_id uuid references public.customers(id) on delete set null,
+  customer_name text not null,
+  customer_phone text,
+  customer_address text,
+  subtotal numeric not null default 0,
+  discount numeric not null default 0,
+  tax numeric not null default 0,
+  total_amount numeric not null default 0,
+  paid_amount numeric not null default 0,
+  due_amount numeric not null default 0,
+  status text not null default 'ISSUED',
+  issue_date date not null default current_date,
+  due_date date,
+  items jsonb not null default '[]'::jsonb,
+  notes text,
+  terms text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- 5. Payment Requests Table
+create table if not exists public.payment_requests (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  plan_requested text not null default 'PRO',
+  billing_cycle text not null default 'monthly',
+  amount numeric not null default 499,
+  payment_method text not null,
+  sender_number text not null,
+  transaction_id text not null,
+  screenshot_url text,
+  status text not null default 'PENDING',
+  admin_notes text,
+  created_at timestamptz default now(),
+  reviewed_at timestamptz
+);
+
+-- 6. Business Settings Table
+create table if not exists public.business_settings (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null unique,
+  invoice_prefix text default 'INV-',
+  quotation_prefix text default 'QTN-',
+  next_invoice_number integer default 1001,
+  tax_rate numeric default 0,
+  default_notes text,
+  default_terms text,
+  bank_details jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- 7. Stock Adjustments Table
+create table if not exists public.stock_adjustments (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  product_id uuid references public.products(id) on delete cascade not null,
+  previous_quantity integer not null,
+  new_quantity integer not null,
+  adjusted_quantity integer not null,
+  reason text not null,
+  notes text,
+  date date not null default current_date,
+  created_at timestamptz default now()
+);
+
+-- 8. Customer Payments Table
+create table if not exists public.customer_payments (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  customer_id uuid references public.customers(id) on delete cascade not null,
+  amount numeric not null default 0,
+  payment_method text not null default 'CASH',
+  date date not null default current_date,
+  notes text,
+  created_at timestamptz default now()
+);
+
+-- 9. Supplier Payments Table
+create table if not exists public.supplier_payments (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  supplier_id uuid references public.suppliers(id) on delete cascade not null,
+  amount numeric not null default 0,
+  payment_method text not null default 'CASH',
+  date date not null default current_date,
+  notes text,
+  created_at timestamptz default now()
+);
+
+-- Enable RLS
+alter table public.suppliers enable row level security;
+alter table public.purchases enable row level security;
+alter table public.invoices enable row level security;
+alter table public.payment_requests enable row level security;
+alter table public.business_settings enable row level security;
+alter table public.stock_adjustments enable row level security;
+alter table public.customer_payments enable row level security;
+alter table public.supplier_payments enable row level security;
+
+-- Policies
+create policy "Users view own suppliers" on public.suppliers for select using (auth.uid() = user_id);
+create policy "Users insert own suppliers" on public.suppliers for insert with check (auth.uid() = user_id);
+create policy "Users update own suppliers" on public.suppliers for update using (auth.uid() = user_id);
+create policy "Users delete own suppliers" on public.suppliers for delete using (auth.uid() = user_id);
+
+create policy "Users view own purchases" on public.purchases for select using (auth.uid() = user_id);
+create policy "Users insert own purchases" on public.purchases for insert with check (auth.uid() = user_id);
+create policy "Users update own purchases" on public.purchases for update using (auth.uid() = user_id);
+create policy "Users delete own purchases" on public.purchases for delete using (auth.uid() = user_id);
+
+create policy "Users view own invoices" on public.invoices for select using (auth.uid() = user_id);
+create policy "Users insert own invoices" on public.invoices for insert with check (auth.uid() = user_id);
+create policy "Users update own invoices" on public.invoices for update using (auth.uid() = user_id);
+create policy "Users delete own invoices" on public.invoices for delete using (auth.uid() = user_id);
+
+create policy "Users view own payment requests" on public.payment_requests for select using (auth.uid() = user_id);
+create policy "Users insert own payment requests" on public.payment_requests for insert with check (auth.uid() = user_id);
+
+create policy "Users view own business settings" on public.business_settings for select using (auth.uid() = user_id);
+create policy "Users insert own business settings" on public.business_settings for insert with check (auth.uid() = user_id);
+create policy "Users update own business settings" on public.business_settings for update using (auth.uid() = user_id);
+
+create policy "Users view own stock adjustments" on public.stock_adjustments for select using (auth.uid() = user_id);
+create policy "Users insert own stock adjustments" on public.stock_adjustments for insert with check (auth.uid() = user_id);
+
+create policy "Users view own customer payments" on public.customer_payments for select using (auth.uid() = user_id);
+create policy "Users insert own customer payments" on public.customer_payments for insert with check (auth.uid() = user_id);
+
+create policy "Users view own supplier payments" on public.supplier_payments for select using (auth.uid() = user_id);
+create policy "Users insert own supplier payments" on public.supplier_payments for insert with check (auth.uid() = user_id);
+`;
+
+  const handleCopyFullSql = () => {
+    navigator.clipboard.writeText(fullSqlContent);
+    setCopiedFull(true);
+    showToast('সম্পূর্ণ SQL স্ক্রিপ্ট (Part 1 + Part 2) ক্লিপবোর্ডে কপি করা হয়েছে!', 'success');
+    setTimeout(() => setCopiedFull(false), 3000);
+  };
+
+  const handleCopyProSql = () => {
+    navigator.clipboard.writeText(proMigrationOnlySql);
+    setCopiedPro(true);
+    showToast('Part 2 প্রো মাইগ্রেশন SQL ক্লিপবোর্ডে কপি করা হয়েছে!', 'success');
+    setTimeout(() => setCopiedPro(false), 3000);
+  };
+
+  return (
+    <div className="max-w-4xl space-y-6 pb-12">
+      {/* Header */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+        <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+          অ্যাপ ও ডেটাবেজ সেটিংস (Settings)
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-500 mt-1">
+          Supabase অথেনটিকেশন, ক্লাউড ডেটাবেজ সংযোগ এবং নিরাপত্তা কনফিগারেশন
+        </p>
+      </div>
+
+      {/* Supabase Connection Manager */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-5">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Supabase সংযোগ ও ক্রেডেনশিয়াল</h2>
+              <p className="text-xs text-slate-500">
+                বাস্তব অ্যাকাউন্ট ব্যবস্থাপনা ও Row Level Security (RLS) ডেটাবেজ
+              </p>
+            </div>
+          </div>
+
+          <div>
+            {isConfigured ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>সংযুক্ত (Configured)</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-xs font-bold">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <span>সংযোগ প্রয়োজন (Missing Keys)</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Credentials Form */}
+        <form onSubmit={handleSaveCredentials} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Supabase Project URL
+            </label>
+            <input
+              type="url"
+              required
+              placeholder="https://your-project-id.supabase.co"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Supabase Anon (Public) Key
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+              value={anonKey}
+              onChange={(e) => setAnonKey(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={testing || !url || !anonKey}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
+                <span>সংযোগ টেস্ট করুন (Test Connection)</span>
+              </button>
+
+              {creds.url && (
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  className="px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer"
+                >
+                  ক্লিয়ার করুন
+                </button>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer"
+            >
+              সংরক্ষণ ও সংযোগ রিফ্রেশ
+            </button>
+          </div>
+
+          {testResult && (
+            <div
+              className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                testResult.success
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}
+            >
+              {testResult.message}
+            </div>
+          )}
+        </form>
+      </div>
+
+      {/* SQL Migration Script Box */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <Terminal className="w-5 h-5 text-slate-700" />
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Supabase SQL ডেটাবেজ স্কিমা</h2>
+              <p className="text-xs text-slate-500">
+                পার্ট ১ ও পার্ট ২ প্রো এর সকল ১৩টি টেবিল ও Row Level Security (RLS) পলিসি
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCopyProSql}
+              className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+              <span>{copiedPro ? 'কপি হয়েছে!' : 'শুধু Pro স্কিমা'}</span>
+            </button>
+
+            <button
+              onClick={handleCopyFullSql}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
+            >
+              {copiedFull ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedFull ? 'কপি হয়েছে!' : 'সম্পূর্ণ স্কিমা (Part 1+2)'}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1.5">
+          <p className="font-semibold text-slate-800">ব্যবহারের সহজ নিয়ম:</p>
+          <ol className="list-decimal list-inside space-y-1">
+            <li>
+              Supabase ড্যাশবোর্ডে লগইন করে{' '}
+              <a
+                href="https://supabase.com/dashboard"
+                target="_blank"
+                rel="noreferrer"
+                className="text-emerald-600 font-semibold hover:underline inline-flex items-center gap-0.5"
+              >
+                SQL Editor <ExternalLink className="w-3 h-3" />
+              </a>{' '}
+              ট্যাবে যান।
+            </li>
+            <li>উপরে থাকা "সম্পূর্ণ স্কিমা" অথবা "শুধু Pro স্কিমা" বাটনে ক্লিক করে কপি করুন।</li>
+            <li>Supabase এ পেস্ট করে <strong>Run</strong> বাটনে চাপ দিন। আপনার ক্লাউড ডেটাবেজ প্রস্তুত হয়ে যাবে!</li>
+          </ol>
+        </div>
+      </div>
+
+      {/* Part 1 & 2 Architecture Notice */}
+      <div className="p-5 bg-gradient-to-br from-slate-50 to-emerald-50/40 rounded-2xl border border-slate-200 text-xs text-slate-600 space-y-2">
+        <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
+          <Layers className="w-4 h-4 text-emerald-600" />
+          <span>সহজ ব্যবসা - পার্ট ১ ও পার্ট ২ প্রো আর্কিটেকচার</span>
+        </div>
+        <p className="leading-relaxed">
+          Shohoj Bebsha সম্পূর্ণ মডুলার আর্কিটেকচারে তৈরি। Free ইউজাররা স্বাচ্ছন্দ্যে সমস্ত মৌলিক ফিচার ব্যবহার করতে পারেন,
+          এবং Pro আপগ্রেডেশনের সাথে সাথেই স্বয়ংক্রিয়ভাবে P&L হিসাব, ইনভয়েস/কোটেশন, ৮টি অ্যাডভান্সড রিপোর্ট, ৯টি ক্যালকুলেটর
+          ও সাপ্লায়ার দেনা খাতা সক্রিয় হয়ে যায়।
+        </p>
+      </div>
+    </div>
+  );
+};
