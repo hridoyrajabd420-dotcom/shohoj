@@ -131,9 +131,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {errorMsg && (
-          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{errorMsg}</span>
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
+              <span className="leading-relaxed">{errorMsg}</span>
+            </div>
+            {mode === 'login' && errorMsg.includes('Invalid login credentials') && (
+              <div className="pt-1.5 border-t border-rose-200/80 flex items-center justify-between">
+                <span className="text-[11px] text-rose-800">অ্যাকাউন্টটি এখনো তৈরি করা নেই?</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('signup');
+                    handleFillDemo();
+                  }}
+                  className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
+                >
+                  ডেমো অ্যাকাউন্ট তৈরি করুন (Sign Up)
+                </button>
+              </div>
+            )}
           </div>
         )}
 

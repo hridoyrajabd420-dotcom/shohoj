@@ -465,6 +465,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (saleResult) {
+        try {
+          await supabase.from('sale_items').insert({
+            sale_id: (saleResult as Sale).id,
+            user_id: user.id,
+            product_id: saleData.productId,
+            quantity: saleData.quantity,
+            unit_price: saleData.sellingPrice,
+            total_price: totalAmount,
+          });
+        } catch {
+          // Safe fallback
+        }
         setSales((prev) => [saleResult as Sale, ...prev]);
       }
 

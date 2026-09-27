@@ -167,8 +167,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
+      const cleanEmail = email.trim();
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: cleanEmail,
         password,
         options: {
           data: {
@@ -176,6 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             business_name: businessName,
             business_type: businessType,
           },
+          emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
         },
       });
 
@@ -183,18 +185,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error: error.message };
       }
 
-      if (data.user) {
-        // Create or upsert profile
+      if (data.user && data.session) {
+        // Create or upsert profile when session is directly available
         const newProf: UserProfile = {
           id: data.user.id,
           full_name: fullName,
-          email,
+          email: cleanEmail,
           phone: '',
           business_name: businessName,
           business_type: businessType,
         };
-        await supabase.from('profiles').upsert(newProf);
-        setProfile(newProf);
+        try {
+          await supabase.from('profiles').upsert(newProf);
+          setProfile(newProf);
+        } catch {
+          // Handled by database trigger or subsequent login
+        }
       }
 
       return { error: null };
@@ -211,12 +217,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
+      const cleanEmail = email.trim();
       const { error } = await supabase.auth.signInWithPassword({
-        email,
+        email: cleanEmail,
         password,
       });
 
       if (error) {
+        if (error.message.includes('Invalid login credentials')) {
+          return {
+            error: 'ভুল ইমেইল বা পাসওয়ার্ড অথবা এই অ্যাকাউন্টের অস্তিত্ব নেই (Invalid login credentials. If using the demo account, please register/sign up first or create it in your Supabase Auth dashboard).'
+          };
+        }
+        if (error.message.includes('Email not confirmed')) {
+          return {
+            error: 'ইমেইল ভেরিফাই করা হয়নি (Email not confirmed. Please check your inbox or disable "Confirm email" in Supabase Auth settings).'
+          };
+        }
         return { error: error.message };
       }
 
@@ -230,7 +247,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     const supabase = getSupabaseClient();
     if (supabase) {
-      await supabase.auth.signOut();
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.warn('Sign out warning:', err);
+      }
     }
     setUser(null);
     setSession(null);
@@ -244,8 +265,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.origin,
+      const cleanEmail = email.trim();
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
       });
       if (error) return { error: error.message };
       return { error: null };

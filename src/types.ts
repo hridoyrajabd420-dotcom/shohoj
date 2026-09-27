@@ -47,6 +47,18 @@ export interface Customer {
   updated_at?: string;
 }
 
+export interface SaleItem {
+  id: string;
+  user_id: string;
+  sale_id: string;
+  product_id?: string | null;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  created_at?: string;
+  product?: Product;
+}
+
 export interface Sale {
   id: string;
   user_id: string;
@@ -61,6 +73,7 @@ export interface Sale {
   // Joined or referenced objects
   product?: Product;
   customer?: Customer;
+  sale_items?: SaleItem[];
 }
 
 export interface Expense {

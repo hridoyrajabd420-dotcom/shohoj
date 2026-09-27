@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Database, AlertTriangle, Key, Copy, Check, ExternalLink } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { saveSupabaseCredentials, getSupabaseCredentials, clearSupabaseCredentials } from '../../lib/supabase';
+import { saveSupabaseCredentials, getSupabaseCredentials, clearSupabaseCredentials, normalizeSupabaseUrl, normalizeSupabaseKey } from '../../lib/supabase';
 import { Modal } from './Modal';
 import { useToast } from '../../context/ToastContext';
 
@@ -18,16 +18,19 @@ export const SupabaseSetupBanner: React.FC = () => {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim() || !anonKey.trim()) {
+    const cleanUrl = normalizeSupabaseUrl(url);
+    const cleanKey = normalizeSupabaseKey(anonKey);
+
+    if (!cleanUrl || !cleanKey) {
       showToast('Please enter both Supabase URL and Anon Key', 'error');
       return;
     }
-    if (!url.startsWith('https://')) {
-      showToast('Supabase URL must start with https://', 'error');
+    if (!cleanUrl.startsWith('https://') && !cleanUrl.startsWith('http://localhost')) {
+      showToast('Supabase URL must be a valid URL starting with https://', 'error');
       return;
     }
 
-    saveSupabaseCredentials(url.trim(), anonKey.trim());
+    saveSupabaseCredentials(cleanUrl, cleanKey);
     checkConfiguration();
     showToast('Supabase credentials saved successfully! Reloading connection...', 'success');
     setIsModalOpen(false);
@@ -87,9 +90,9 @@ create table if not exists public.customers (
 -- 4. Sales Table
 create table if not exists public.sales (
   id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users on delete cascade not null,
-  product_id uuid references public.products(id) on delete set null,
+  user_id uuid references auth.users(id) on delete cascade not null,
   customer_id uuid references public.customers(id) on delete set null,
+  product_id uuid references public.products(id) on delete set null,
   quantity integer not null default 1,
   selling_price numeric not null default 0,
   total_amount numeric not null default 0,
@@ -98,10 +101,22 @@ create table if not exists public.sales (
   created_at timestamptz default now()
 );
 
--- 5. Expenses Table
+-- 5. Sale Items Table
+create table if not exists public.sale_items (
+  id uuid default gen_random_uuid() primary key,
+  sale_id uuid references public.sales(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade not null,
+  product_id uuid references public.products(id) on delete set null,
+  quantity integer not null default 1,
+  unit_price numeric not null default 0,
+  total_price numeric not null default 0,
+  created_at timestamptz default now()
+);
+
+-- 6. Expenses Table
 create table if not exists public.expenses (
   id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade not null,
   category text not null,
   amount numeric not null default 0,
   description text,
@@ -114,6 +129,7 @@ alter table public.profiles enable row level security;
 alter table public.products enable row level security;
 alter table public.customers enable row level security;
 alter table public.sales enable row level security;
+alter table public.sale_items enable row level security;
 alter table public.expenses enable row level security;
 
 -- Policies for Profiles
@@ -139,11 +155,51 @@ create policy "Users can insert own sales" on public.sales for insert with check
 create policy "Users can update own sales" on public.sales for update using (auth.uid() = user_id);
 create policy "Users can delete own sales" on public.sales for delete using (auth.uid() = user_id);
 
+-- Policies for Sale Items
+create policy "Users can view own sale_items" on public.sale_items for select using (auth.uid() = user_id);
+create policy "Users can insert own sale_items" on public.sale_items for insert with check (auth.uid() = user_id);
+create policy "Users can update own sale_items" on public.sale_items for update using (auth.uid() = user_id);
+create policy "Users can delete own sale_items" on public.sale_items for delete using (auth.uid() = user_id);
+
 -- Policies for Expenses
 create policy "Users can view own expenses" on public.expenses for select using (auth.uid() = user_id);
 create policy "Users can insert own expenses" on public.expenses for insert with check (auth.uid() = user_id);
 create policy "Users can update own expenses" on public.expenses for update using (auth.uid() = user_id);
-create policy "Users can delete own expenses" on public.expenses for delete using (auth.uid() = user_id);`;
+create policy "Users can delete own expenses" on public.expenses for delete using (auth.uid() = user_id);
+
+-- Performance Indexes
+create index if not exists idx_products_user_id on public.products(user_id);
+create index if not exists idx_customers_user_id on public.customers(user_id);
+create index if not exists idx_sales_user_id on public.sales(user_id);
+create index if not exists idx_sales_product_id on public.sales(product_id);
+create index if not exists idx_sales_customer_id on public.sales(customer_id);
+create index if not exists idx_sales_date on public.sales(sale_date);
+create index if not exists idx_sale_items_user_id on public.sale_items(user_id);
+create index if not exists idx_sale_items_sale_id on public.sale_items(sale_id);
+create index if not exists idx_sale_items_product_id on public.sale_items(product_id);
+create index if not exists idx_expenses_user_id on public.expenses(user_id);
+create index if not exists idx_expenses_date on public.expenses(date);
+
+-- Trigger for Profile Creation on Sign-Up
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, full_name, email, business_name, business_type)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'full_name', ''),
+    new.email,
+    coalesce(new.raw_user_meta_data->>'business_name', 'আমার ব্যবসা'),
+    coalesce(new.raw_user_meta_data->>'business_type', 'Retail')
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();`;
 
     navigator.clipboard.writeText(sqlContent);
     setCopied(true);
@@ -246,13 +302,16 @@ create policy "Users can delete own expenses" on public.expenses for delete usin
                   Supabase Project URL
                 </label>
                 <input
-                  type="url"
+                  type="text"
                   placeholder="https://xyzcompany.supabase.co"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   required
                   className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Settings &gt; API থেকে Project URL কপি করুন (যেমন: <code className="font-mono text-emerald-700">https://xyz.supabase.co</code>)। কোনো <code className="font-mono text-rose-600">/auth</code> যোগ করবেন না।
+                </p>
               </div>
 
               <div>
@@ -315,7 +374,7 @@ create policy "Users can delete own expenses" on public.expenses for delete usin
               <div className="bg-slate-900 text-slate-200 p-3 rounded-xl font-mono text-xs max-h-60 overflow-y-auto border border-slate-800">
                 <pre className="whitespace-pre text-[11px] leading-relaxed">
 {`-- সহজ ব্যবসা (Shohoj Bebsha) Part 1 Schema
--- Tables: profiles, products, customers, sales, expenses
+-- Tables: profiles, products, customers, sales, sale_items, expenses
 -- Full Row Level Security (RLS) policies configured`}
                 </pre>
               </div>

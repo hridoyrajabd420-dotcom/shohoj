@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { getSupabaseCredentials, saveSupabaseCredentials, clearSupabaseCredentials, getSupabaseClient } from '../../lib/supabase';
+import { getSupabaseCredentials, saveSupabaseCredentials, clearSupabaseCredentials, getSupabaseClient, normalizeSupabaseUrl, normalizeSupabaseKey } from '../../lib/supabase';
 import { useToast } from '../../context/ToastContext';
 import {
   Database,
@@ -29,14 +29,17 @@ export const SettingsView: React.FC = () => {
 
   const handleSaveCredentials = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim() || !anonKey.trim()) {
+    const cleanUrl = normalizeSupabaseUrl(url);
+    const cleanKey = normalizeSupabaseKey(anonKey);
+
+    if (!cleanUrl || !cleanKey) {
       showToast('উভয় Supabase URL এবং Anon Key পূরণ করুন', 'error');
       return;
     }
 
-    saveSupabaseCredentials(url.trim(), anonKey.trim());
+    saveSupabaseCredentials(cleanUrl, cleanKey);
     checkConfiguration();
-    showToast('Supabase ক্রেডেনশিয়াল সংরক্ষিত হয়েছে। রিফ্রেশ করা হচ্ছে...', 'success');
+    showToast('Supabase ক্রেডেনশিয়াল সঠিকভাবে সংরক্ষিত হয়েছে। রিফ্রেশ করা হচ্ছে...', 'success');
     window.location.reload();
   };
 
@@ -60,24 +63,35 @@ export const SettingsView: React.FC = () => {
     }
 
     try {
-      // Test by querying public tables
+      // 1. Verify Auth endpoint reachable without 404/Invalid path
+      const authRes = await client.auth.getSession();
+      if (authRes.error) {
+        setTestResult({
+          success: false,
+          message: `Auth এন্ডপয়েন্ট ত্রুটি: ${authRes.error.message}`,
+        });
+        setTesting(false);
+        return;
+      }
+
+      // 2. Test by querying public tables
       const { error } = await client.from('products').select('count', { count: 'exact', head: true });
       if (error) {
         if (error.code === '42P01') {
           setTestResult({
-            success: false,
-            message: 'সংযোগ সফল হয়েছে কিন্তু ডেটাবেজ টেবিলগুলো এখনো তৈরি করা হয়নি। অনুগ্রহ করে নিচের SQL স্ক্রিপ্টটি Supabase SQL Editor এ রান করুন।',
+            success: true,
+            message: 'Supabase Auth ও সংযোগ সফল হয়েছে! তবে ডেটাবেজ টেবিলগুলো এখনো তৈরি করা হয়নি। অনুগ্রহ করে নিচের SQL স্ক্রিপ্টটি Supabase SQL Editor এ রান করুন।',
           });
         } else {
           setTestResult({
             success: false,
-            message: `ত্রুটি: ${error.message} (Code: ${error.code})`,
+            message: `ডেটাবেজ ত্রুটি: ${error.message} (Code: ${error.code})`,
           });
         }
       } else {
         setTestResult({
           success: true,
-          message: 'অসাধারণ! Supabase ডেটাবেজ এবং আরএলএস সফলভাবে সংযুক্ত রয়েছে।',
+          message: 'অসাধারণ! Supabase Auth এবং ডেটাবেজ সফলভাবে সংযুক্ত ও কার্যকর রয়েছে।',
         });
       }
     } catch (err: unknown) {
@@ -620,13 +634,16 @@ create policy "Users insert own supplier payments" on public.supplier_payments f
               Supabase Project URL
             </label>
             <input
-              type="url"
+              type="text"
               required
               placeholder="https://your-project-id.supabase.co"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
             />
+            <p className="mt-1 text-[11px] text-slate-500">
+              সরাসরি Supabase Dashboard &gt; Settings &gt; API থেকে Project URL কপি করুন (যেমন: <code className="font-mono text-emerald-700">https://xyz.supabase.co</code>)। কোনো <code className="font-mono text-rose-600">/auth</code> বা বাড়তি পাথ যুক্ত করবেন না।
+            </p>
           </div>
 
           <div>
@@ -641,6 +658,9 @@ create policy "Users insert own supplier payments" on public.supplier_payments f
               onChange={(e) => setAnonKey(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
             />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Supabase API Settings থেকে <code className="font-mono text-emerald-700">anon</code> / <code className="font-mono text-emerald-700">public</code> কী কপি করুন (JWT টোকেন যা সাধারণত <code className="font-mono">eyJ</code> দিয়ে শুরু হয়)।
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
