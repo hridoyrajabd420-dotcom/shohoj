@@ -13,6 +13,8 @@ import {
   ExternalLink,
   Layers,
   Sparkles,
+  Download,
+  FileArchive,
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
@@ -758,6 +760,44 @@ create policy "Users insert own supplier payments" on public.supplier_payments f
             <li>উপরে থাকা "সম্পূর্ণ স্কিমা" অথবা "শুধু Pro স্কিমা" বাটনে ক্লিক করে কপি করুন।</li>
             <li>Supabase এ পেস্ট করে <strong>Run</strong> বাটনে চাপ দিন। আপনার ক্লাউড ডেটাবেজ প্রস্তুত হয়ে যাবে!</li>
           </ol>
+        </div>
+      </div>
+
+      {/* Project Export / Netlify Deployment ZIP */}
+      <div className="p-6 bg-white rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0">
+              <FileArchive className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-800">
+                সম্পূর্ণ প্রজেক্ট জিপ ডাউনলোড (Download Full Project ZIP)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Netlify বা GitHub এ ডিপ্লয় করার জন্য প্রস্তুত সম্পূর্ণ সোর্স কোড (.zip)
+              </p>
+            </div>
+          </div>
+
+          <a
+            href="/shohoj-bebsha.zip"
+            download="shohoj-bebsha.zip"
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            <span>প্রজেক্ট ZIP ডাউনলোড করুন</span>
+          </a>
+        </div>
+
+        <div className="text-xs text-slate-600 space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+          <p className="font-semibold text-slate-800">Netlify-তে ডিপ্লয় করার সহজ ধাপ:</p>
+          <ul className="list-disc list-inside space-y-1 text-slate-600">
+            <li>উপরে থাকা <strong>"প্রজেক্ট ZIP ডাউনলোড করুন"</strong> বাটনে ক্লিক করে জিপ ফাইলটি নামান।</li>
+            <li>জিপ ফাইলটি আনজিপ করে আপনার GitHub রিপোজিটরিতে পুশ করুন অথবা Netlify Drop এ আপলোড করুন।</li>
+            <li>Netlify সাইট সেটিংসে গিয়ে <code className="px-1.5 py-0.5 bg-slate-200 text-slate-800 rounded font-mono text-[11px]">VITE_SUPABASE_URL</code> এবং <code className="px-1.5 py-0.5 bg-slate-200 text-slate-800 rounded font-mono text-[11px]">VITE_SUPABASE_ANON_KEY</code> ভ্যারিয়েবল যোগ করুন।</li>
+            <li>Netlify তে <strong>Clear cache and deploy site</strong> দিন।</li>
+          </ul>
         </div>
       </div>
 
