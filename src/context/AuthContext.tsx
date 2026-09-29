@@ -28,7 +28,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [isConfigured, setIsConfigured] = useState<boolean>(false);
+  const [isConfigured, setIsConfigured] = useState<boolean>(() => getSupabaseCredentials().isConfigured);
   const [isPasswordResetFlow, setIsPasswordResetFlow] = useState<boolean>(false);
 
   const checkConfiguration = () => {
@@ -163,7 +163,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): Promise<{ error: string | null }> => {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return { error: 'Supabase credentials are not configured yet. Please configure them in Settings or .env.' };
+      return { error: 'Supabase credentials are not configured. Please ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set.' };
     }
 
     try {
@@ -213,7 +213,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      return { error: 'Supabase credentials are not configured yet. Please configure them in Settings or .env.' };
+      return { error: 'Supabase credentials are not configured. Please ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set.' };
     }
 
     try {

@@ -227,7 +227,7 @@ create trigger on_auth_user_created
                 <span>Supabase সংযোগ প্রয়োজন (Supabase Setup Required)</span>
               </p>
               <p className="text-xs text-slate-600">
-                বাস্তব অ্যাকাউন্ট ও ডেটাবেজ সক্রিয় করতে আপনার Supabase URL ও Anon Key ইনপুট করুন।
+                বাস্তব অ্যাকাউন্ট ও ডেটাবেজ সক্রিয় করতে হোস্টিং এনভায়রনমেন্টে VITE_SUPABASE_URL ও VITE_SUPABASE_ANON_KEY যোগ করে ডিপ্লয় করুন।
               </p>
             </div>
           </div>

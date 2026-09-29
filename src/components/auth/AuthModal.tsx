@@ -47,7 +47,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setLoading(true);
 
     if (!isConfigured) {
-      setErrorMsg('Supabase is not configured yet. Please enter your Supabase Project URL & Anon Key in the banner above.');
+      setErrorMsg('Supabase কনফিগার করা নেই। অনুগ্রহ করে VITE_SUPABASE_URL ও VITE_SUPABASE_ANON_KEY এনভায়রনমেন্ট ভেরিয়েবল সেট করুন। (Supabase is not configured. Please ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables are set in your deployment).');
       setLoading(false);
       return;
     }

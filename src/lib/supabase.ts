@@ -27,8 +27,8 @@ export function normalizeSupabaseUrl(rawUrl: string): string {
     return `https://${dashboardMatch[1]}.supabase.co`;
   }
 
-  // 4. If user entered only the 20-character project ref
-  if (/^[a-z0-9]{20}$/i.test(clean)) {
+  // 4. If user entered only the project reference (e.g. 15-35 alphanum chars without dots or slashes)
+  if (/^[a-z0-9_-]{15,35}$/i.test(clean) && !clean.includes('.') && !clean.includes('/')) {
     return `https://${clean}.supabase.co`;
   }
 
@@ -68,41 +68,68 @@ export function normalizeSupabaseKey(rawKey: string): string {
   return clean;
 }
 
-export function getSupabaseCredentials(): { url: string; anonKey: string; isConfigured: boolean } {
-  // Check env vars first, then localStorage overrides
-  const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+/**
+ * Verifies if the provided URL and Anon Key meet valid Supabase requirements.
+ */
+export function isSupabaseConfigured(url: string, anonKey: string): boolean {
+  if (!url || !anonKey) return false;
+  // Reject template placeholders
+  if (url.includes('your-project') || url.includes('placeholder')) return false;
+  if (anonKey.includes('your-anon-key') || anonKey.includes('placeholder')) return false;
+  // Valid URL protocol
+  if (!url.startsWith('https://') && !url.startsWith('http://')) return false;
+  // Supabase anon keys are tokens of reasonable length
+  if (anonKey.length < 10) return false;
 
-  const localUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_URL_KEY) || '' : '';
-  const localKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_ANON_KEY) || '' : '';
+  return true;
+}
 
-  const rawUrl = localUrl || envUrl;
-  const rawKey = localKey || envKey;
+export interface SupabaseConfigInfo {
+  url: string;
+  anonKey: string;
+  isConfigured: boolean;
+  source: 'env' | 'storage' | 'none';
+}
 
-  const url = normalizeSupabaseUrl(rawUrl);
-  const anonKey = normalizeSupabaseKey(rawKey);
+/**
+ * Reads Supabase credentials with strict prioritization:
+ * 1. Vite client-side environment variables (import.meta.env.VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY)
+ * 2. Fallback to localStorage (for local manual testing if env vars are missing)
+ */
+export function getSupabaseCredentials(): SupabaseConfigInfo {
+  // 1. Vite client-side environment variables (Primary source of truth for Netlify & production builds)
+  const envUrl = normalizeSupabaseUrl(import.meta.env.VITE_SUPABASE_URL || '');
+  const envKey = normalizeSupabaseKey(import.meta.env.VITE_SUPABASE_ANON_KEY || '');
 
-  // Self-heal localStorage if the saved values had quotes or extra paths
-  if (typeof window !== 'undefined') {
-    if (localUrl && localUrl !== url) {
-      localStorage.setItem(STORAGE_URL_KEY, url);
-    }
-    if (localKey && localKey !== anonKey) {
-      localStorage.setItem(STORAGE_ANON_KEY, anonKey);
-    }
+  if (isSupabaseConfigured(envUrl, envKey)) {
+    return {
+      url: envUrl,
+      anonKey: envKey,
+      isConfigured: true,
+      source: 'env',
+    };
   }
 
-  // Basic check to see if it's not empty and not the placeholder
-  const isConfigured = Boolean(
-    url &&
-    anonKey &&
-    !url.includes('your-project.supabase.co') &&
-    !anonKey.includes('your-anon-key') &&
-    (url.startsWith('https://') || url.startsWith('http://localhost')) &&
-    anonKey.length >= 20
-  );
+  // 2. Secondary fallback: Local storage (for manual local development if env vars were not injected)
+  const localUrl = typeof window !== 'undefined' ? normalizeSupabaseUrl(localStorage.getItem(STORAGE_URL_KEY) || '') : '';
+  const localKey = typeof window !== 'undefined' ? normalizeSupabaseKey(localStorage.getItem(STORAGE_ANON_KEY) || '') : '';
 
-  return { url, anonKey, isConfigured };
+  if (isSupabaseConfigured(localUrl, localKey)) {
+    return {
+      url: localUrl,
+      anonKey: localKey,
+      isConfigured: true,
+      source: 'storage',
+    };
+  }
+
+  // Neither is configured
+  return {
+    url: envUrl || localUrl,
+    anonKey: envKey || localKey,
+    isConfigured: false,
+    source: 'none',
+  };
 }
 
 export function saveSupabaseCredentials(rawUrl: string, rawKey: string) {
@@ -161,3 +188,17 @@ export function getSupabaseClient(): SupabaseClient | null {
 
   return supabaseInstance;
 }
+
+/**
+ * Convenience Supabase client export
+ */
+export const supabase = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    const client = getSupabaseClient();
+    if (!client) {
+      throw new Error('Supabase client is not configured. Please ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set.');
+    }
+    const val = (client as unknown as Record<string | symbol, unknown>)[prop];
+    return typeof val === 'function' ? val.bind(client) : val;
+  },
+});
