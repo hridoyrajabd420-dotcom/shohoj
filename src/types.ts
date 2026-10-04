@@ -24,14 +24,33 @@ export interface UserProfile {
 export interface Product {
   id: string;
   user_id: string;
-  name: string;
+  product_name: string;
+  name: string; // Backwards compatibility alias for product_name
+  category?: string;
   sku: string;
   purchase_price: number;
   selling_price: number;
   stock_quantity: number;
-  low_stock_level: number;
+  low_stock_threshold: number;
+  low_stock_level: number; // Backwards compatibility alias for low_stock_threshold
+  unit?: string;
+  description?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface ProductInput {
+  product_name: string;
+  name?: string;
+  category?: string;
+  sku?: string;
+  purchase_price: number;
+  selling_price: number;
+  stock_quantity: number;
+  low_stock_threshold?: number;
+  low_stock_level?: number;
+  unit?: string;
+  description?: string;
 }
 
 export interface Customer {
@@ -66,14 +85,34 @@ export interface Sale {
   customer_id: string | null;
   quantity: number;
   selling_price: number;
+  subtotal?: number;
+  discount?: number;
   total_amount: number;
+  paid_amount?: number;
+  due_amount?: number;
   payment_status: 'paid' | 'due';
   sale_date: string;
+  notes?: string;
   created_at?: string;
   // Joined or referenced objects
   product?: Product;
   customer?: Customer;
   sale_items?: SaleItem[];
+}
+
+export interface SaleInput {
+  productId: string;
+  customerId: string | null;
+  quantity: number;
+  sellingPrice: number;
+  subtotal?: number;
+  discount?: number;
+  totalAmount?: number;
+  paidAmount?: number;
+  dueAmount?: number;
+  paymentStatus: 'paid' | 'due';
+  saleDate: string;
+  notes?: string;
 }
 
 export interface Expense {

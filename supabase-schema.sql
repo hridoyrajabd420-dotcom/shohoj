@@ -16,19 +16,47 @@ create table if not exists public.profiles (
   updated_at timestamptz default now()
 );
 
--- 2. Products Table (Inventory items)
+-- 2. Products Table (Inventory items: Part 1 Step 3)
 create table if not exists public.products (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
-  name text not null,
+  product_name text not null,
+  category text,
   sku text,
   purchase_price numeric not null default 0,
   selling_price numeric not null default 0,
   stock_quantity integer not null default 0,
-  low_stock_level integer not null default 5,
+  low_stock_threshold integer not null default 5,
+  unit text default 'pcs',
+  description text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Safe migrations: Ensure all Part 1 Step 3 columns exist if table was already created
+alter table public.products add column if not exists product_name text;
+alter table public.products add column if not exists category text;
+alter table public.products add column if not exists sku text;
+alter table public.products add column if not exists purchase_price numeric not null default 0;
+alter table public.products add column if not exists selling_price numeric not null default 0;
+alter table public.products add column if not exists stock_quantity integer not null default 0;
+alter table public.products add column if not exists low_stock_threshold integer not null default 5;
+alter table public.products add column if not exists unit text default 'pcs';
+alter table public.products add column if not exists description text;
+alter table public.products add column if not exists updated_at timestamptz default now();
+
+-- Ensure legacy 'name' or 'low_stock_level' are migrated to product_name / low_stock_threshold
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'products' and column_name = 'name') then
+    update public.products set product_name = name where product_name is null and name is not null;
+    alter table public.products alter column name drop not null;
+  end if;
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'products' and column_name = 'low_stock_level') then
+    update public.products set low_stock_threshold = low_stock_level where low_stock_threshold is null and low_stock_level is not null;
+    alter table public.products alter column low_stock_level drop not null;
+  end if;
+end $$;
 
 -- 3. Customers Table
 create table if not exists public.customers (
@@ -44,7 +72,7 @@ create table if not exists public.customers (
   updated_at timestamptz default now()
 );
 
--- 4. Sales Table
+-- 4. Sales Table (Part 1 Step 4: Sales Management)
 create table if not exists public.sales (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
@@ -52,11 +80,23 @@ create table if not exists public.sales (
   product_id uuid references public.products(id) on delete set null,
   quantity integer not null default 1,
   selling_price numeric not null default 0,
+  subtotal numeric not null default 0,
+  discount numeric not null default 0,
   total_amount numeric not null default 0,
-  payment_status text not null default 'paid' check (payment_status in ('paid', 'due')),
+  paid_amount numeric not null default 0,
+  due_amount numeric not null default 0,
+  payment_status text not null default 'paid',
   sale_date date not null default current_date,
+  notes text,
   created_at timestamptz default now()
 );
+
+-- Safe migrations: Ensure all Step 4 columns exist if table was already created
+alter table public.sales add column if not exists subtotal numeric default 0;
+alter table public.sales add column if not exists discount numeric default 0;
+alter table public.sales add column if not exists paid_amount numeric default 0;
+alter table public.sales add column if not exists due_amount numeric default 0;
+alter table public.sales add column if not exists notes text;
 
 -- 5. Sale Items Table (Detailed itemized records per sale)
 create table if not exists public.sale_items (
@@ -283,3 +323,339 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- ==============================================================================
+-- ATOMIC TRANSACTION FUNCTION FOR SALES MANAGEMENT (Part 1 Step 4)
+-- ==============================================================================
+
+create or replace function public.record_sale_transaction(
+  p_product_id uuid,
+  p_customer_id uuid,
+  p_quantity integer,
+  p_selling_price numeric,
+  p_subtotal numeric,
+  p_discount numeric,
+  p_total_amount numeric,
+  p_paid_amount numeric,
+  p_due_amount numeric,
+  p_payment_status text,
+  p_sale_date date,
+  p_notes text default null
+) returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_current_stock integer;
+  v_new_sale_id uuid;
+begin
+  if v_user_id is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  -- 1. Check current stock with row lock
+  select stock_quantity into v_current_stock
+  from public.products
+  where id = p_product_id and user_id = v_user_id
+  for update;
+
+  if not found then
+    raise exception 'Product not found';
+  end if;
+
+  if v_current_stock < p_quantity then
+    raise exception 'Insufficient stock: Available %, requested %', v_current_stock, p_quantity;
+  end if;
+
+  -- 2. Deduct stock atomically
+  update public.products
+  set stock_quantity = stock_quantity - p_quantity,
+      updated_at = now()
+  where id = p_product_id and user_id = v_user_id;
+
+  -- 3. Insert sale
+  insert into public.sales (
+    user_id,
+    product_id,
+    customer_id,
+    quantity,
+    selling_price,
+    subtotal,
+    discount,
+    total_amount,
+    paid_amount,
+    due_amount,
+    payment_status,
+    sale_date,
+    notes
+  ) values (
+    v_user_id,
+    p_product_id,
+    p_customer_id,
+    p_quantity,
+    p_selling_price,
+    coalesce(p_subtotal, p_quantity * p_selling_price),
+    coalesce(p_discount, 0),
+    p_total_amount,
+    coalesce(p_paid_amount, case when p_payment_status = 'paid' then p_total_amount else 0 end),
+    coalesce(p_due_amount, case when p_payment_status = 'due' then p_total_amount else 0 end),
+    p_payment_status,
+    p_sale_date,
+    p_notes
+  ) returning id into v_new_sale_id;
+
+  -- 4. Insert into sale_items
+  insert into public.sale_items (
+    sale_id,
+    user_id,
+    product_id,
+    quantity,
+    unit_price,
+    total_price
+  ) values (
+    v_new_sale_id,
+    v_user_id,
+    p_product_id,
+    p_quantity,
+    p_selling_price,
+    p_total_amount
+  );
+
+  -- 5. Update customer balance
+  if p_customer_id is not null then
+    update public.customers
+    set total_purchase = coalesce(total_purchase, 0) + p_total_amount,
+        due_amount = coalesce(due_amount, 0) + coalesce(p_due_amount, case when p_payment_status = 'due' then p_total_amount else 0 end),
+        updated_at = now()
+    where id = p_customer_id and user_id = v_user_id;
+  end if;
+
+  return jsonb_build_object(
+    'success', true,
+    'sale_id', v_new_sale_id,
+    'new_stock', v_current_stock - p_quantity
+  );
+end;
+$$;
+
+-- ------------------------------------------------------------------------------
+-- Atomic Function: update_sale_transaction
+-- Restores old stock, applies new stock, recalculates customer dues atomically
+-- ------------------------------------------------------------------------------
+create or replace function public.update_sale_transaction(
+  p_sale_id uuid,
+  p_product_id uuid,
+  p_customer_id uuid,
+  p_quantity integer,
+  p_selling_price numeric,
+  p_subtotal numeric,
+  p_discount numeric,
+  p_total_amount numeric,
+  p_paid_amount numeric,
+  p_due_amount numeric,
+  p_payment_status text,
+  p_sale_date date,
+  p_notes text default null
+) returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_old_sale record;
+  v_available_stock integer;
+  v_old_due numeric;
+  v_calc_due numeric;
+begin
+  if v_user_id is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  -- 1. Fetch old sale with lock
+  select * into v_old_sale
+  from public.sales
+  where id = p_sale_id and user_id = v_user_id
+  for update;
+
+  if not found then
+    raise exception 'Sale not found';
+  end if;
+
+  v_old_due := coalesce(v_old_sale.due_amount, case when v_old_sale.payment_status = 'due' then v_old_sale.total_amount else 0 end);
+  v_calc_due := coalesce(p_due_amount, case when p_payment_status = 'due' then p_total_amount else 0 end);
+
+  -- 2. Stock handling
+  if v_old_sale.product_id = p_product_id then
+    -- Check if new quantity exceeds current stock + old quantity
+    select stock_quantity into v_available_stock
+    from public.products
+    where id = p_product_id and user_id = v_user_id
+    for update;
+
+    if (v_available_stock + v_old_sale.quantity) < p_quantity then
+      raise exception 'Insufficient stock: Available %, requested %', (v_available_stock + v_old_sale.quantity), p_quantity;
+    end if;
+
+    update public.products
+    set stock_quantity = stock_quantity + v_old_sale.quantity - p_quantity,
+        updated_at = now()
+    where id = p_product_id and user_id = v_user_id;
+  else
+    -- Restoring stock to old product
+    if v_old_sale.product_id is not null then
+      update public.products
+      set stock_quantity = stock_quantity + v_old_sale.quantity,
+          updated_at = now()
+      where id = v_old_sale.product_id and user_id = v_user_id;
+    end if;
+
+    -- Deducting from new product
+    select stock_quantity into v_available_stock
+    from public.products
+    where id = p_product_id and user_id = v_user_id
+    for update;
+
+    if v_available_stock < p_quantity then
+      raise exception 'Insufficient stock: Available %, requested %', v_available_stock, p_quantity;
+    end if;
+
+    update public.products
+    set stock_quantity = stock_quantity - p_quantity,
+        updated_at = now()
+    where id = p_product_id and user_id = v_user_id;
+  end if;
+
+  -- 3. Update customer due & total_purchase balances
+  if v_old_sale.customer_id is not null and v_old_sale.customer_id != p_customer_id then
+    -- Revert old customer's balances
+    update public.customers
+    set total_purchase = greatest(0, coalesce(total_purchase, 0) - v_old_sale.total_amount),
+        due_amount = greatest(0, coalesce(due_amount, 0) - v_old_due),
+        updated_at = now()
+    where id = v_old_sale.customer_id and user_id = v_user_id;
+  end if;
+
+  if p_customer_id is not null then
+    if v_old_sale.customer_id = p_customer_id then
+      -- Same customer: adjust difference
+      update public.customers
+      set total_purchase = greatest(0, coalesce(total_purchase, 0) - v_old_sale.total_amount + p_total_amount),
+          due_amount = greatest(0, coalesce(due_amount, 0) - v_old_due + v_calc_due),
+          updated_at = now()
+      where id = p_customer_id and user_id = v_user_id;
+    else
+      -- New customer
+      update public.customers
+      set total_purchase = coalesce(total_purchase, 0) + p_total_amount,
+          due_amount = coalesce(due_amount, 0) + v_calc_due,
+          updated_at = now()
+      where id = p_customer_id and user_id = v_user_id;
+    end if;
+  end if;
+
+  -- 4. Update the sale record
+  update public.sales
+  set product_id = p_product_id,
+      customer_id = p_customer_id,
+      quantity = p_quantity,
+      selling_price = p_selling_price,
+      subtotal = coalesce(p_subtotal, p_quantity * p_selling_price),
+      discount = coalesce(p_discount, 0),
+      total_amount = p_total_amount,
+      paid_amount = coalesce(p_paid_amount, case when p_payment_status = 'paid' then p_total_amount else 0 end),
+      due_amount = v_calc_due,
+      payment_status = p_payment_status,
+      sale_date = p_sale_date,
+      notes = p_notes
+  where id = p_sale_id and user_id = v_user_id;
+
+  -- 5. Update or insert sale_items
+  delete from public.sale_items where sale_id = p_sale_id and user_id = v_user_id;
+  insert into public.sale_items (
+    sale_id,
+    user_id,
+    product_id,
+    quantity,
+    unit_price,
+    total_price
+  ) values (
+    p_sale_id,
+    v_user_id,
+    p_product_id,
+    p_quantity,
+    p_selling_price,
+    p_total_amount
+  );
+
+  return jsonb_build_object(
+    'success', true,
+    'sale_id', p_sale_id
+  );
+end;
+$$;
+
+-- ------------------------------------------------------------------------------
+-- Atomic Function: delete_sale_transaction
+-- Restores product stock and reverts customer dues atomically
+-- ------------------------------------------------------------------------------
+create or replace function public.delete_sale_transaction(
+  p_sale_id uuid
+) returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_sale record;
+  v_due numeric;
+begin
+  if v_user_id is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  select * into v_sale
+  from public.sales
+  where id = p_sale_id and user_id = v_user_id
+  for update;
+
+  if not found then
+    raise exception 'Sale not found';
+  end if;
+
+  v_due := coalesce(v_sale.due_amount, case when v_sale.payment_status = 'due' then v_sale.total_amount else 0 end);
+
+  -- 1. Restore product stock
+  if v_sale.product_id is not null then
+    update public.products
+    set stock_quantity = stock_quantity + v_sale.quantity,
+        updated_at = now()
+    where id = v_sale.product_id and user_id = v_user_id;
+  end if;
+
+  -- 2. Restore customer due & total_purchase
+  if v_sale.customer_id is not null then
+    update public.customers
+    set total_purchase = greatest(0, coalesce(total_purchase, 0) - v_sale.total_amount),
+        due_amount = greatest(0, coalesce(due_amount, 0) - v_due),
+        updated_at = now()
+    where id = v_sale.customer_id and user_id = v_user_id;
+  end if;
+
+  -- 3. Delete sale items
+  delete from public.sale_items where sale_id = p_sale_id and user_id = v_user_id;
+
+  -- 4. Delete the sale
+  delete from public.sales where id = p_sale_id and user_id = v_user_id;
+
+  return jsonb_build_object(
+    'success', true,
+    'deleted_sale_id', p_sale_id
+  );
+end;
+$$;
+
+-- Grant execution to authenticated users
+grant execute on function public.record_sale_transaction to authenticated;
+grant execute on function public.update_sale_transaction to authenticated;
+grant execute on function public.delete_sale_transaction to authenticated;

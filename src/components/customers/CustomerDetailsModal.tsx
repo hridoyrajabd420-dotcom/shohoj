@@ -107,7 +107,7 @@ export const CustomerDetailsModal: React.FC<CustomerDetailsModalProps> = ({
                           {formatDate(sale.sale_date)}
                         </td>
                         <td className="px-3 py-2.5 font-semibold text-slate-800">
-                          {prod ? prod.name : 'অজানা পণ্য'}
+                          {prod ? (prod.product_name || prod.name) : 'অজানা পণ্য'}
                         </td>
                         <td className="px-3 py-2.5 font-medium text-slate-600">
                           {sale.quantity}টি

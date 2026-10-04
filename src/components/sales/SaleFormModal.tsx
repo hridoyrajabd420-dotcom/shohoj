@@ -1,10 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from '../common/Modal';
 import { useData } from '../../context/DataContext';
 import { useToast } from '../../context/ToastContext';
 import { formatCurrency } from '../../lib/formatters';
 import { Sale } from '../../types';
-import { ShoppingCart, User, Calendar, Check, AlertCircle, Plus } from 'lucide-react';
+import {
+  ShoppingCart,
+  User,
+  Calendar,
+  Check,
+  AlertCircle,
+  Plus,
+  Percent,
+  CreditCard,
+  FileText,
+  AlertTriangle,
+} from 'lucide-react';
 
 interface SaleFormModalProps {
   isOpen: boolean;
@@ -26,19 +37,45 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
   const [customerId, setCustomerId] = useState<string>('');
   const [quantity, setQuantity] = useState<number | ''>(1);
   const [sellingPrice, setSellingPrice] = useState<number | ''>('');
-  const [paymentStatus, setPaymentStatus] = useState<'paid' | 'due'>('paid');
+  const [discount, setDiscount] = useState<number | ''>(0);
+  const [paidAmount, setPaidAmount] = useState<number | ''>('');
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState('');
 
   // Quick inline add customer
   const [isAddingCustomer, setIsAddingCustomer] = useState(false);
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustAddress, setNewCustAddress] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Selected product reference
   const selectedProduct = products.find((p) => p.id === productId);
+
+  // Available stock calculation considering edit mode
+  const availableStock = useMemo(() => {
+    if (!selectedProduct) return 0;
+    if (saleToEdit && saleToEdit.product_id === productId) {
+      return (selectedProduct.stock_quantity || 0) + (saleToEdit.quantity || 0);
+    }
+    return selectedProduct.stock_quantity || 0;
+  }, [selectedProduct, saleToEdit, productId]);
+
+  // Numeric calculated values
+  const qty = Number(quantity) || 0;
+  const price = Number(sellingPrice) || 0;
+  const subtotal = Math.round(qty * price * 100) / 100;
+  const disc = Number(discount) || 0;
+  const totalAmount = Math.max(0, Math.round((subtotal - disc) * 100) / 100);
+
+  // Paid amount and Due amount
+  const paid = paidAmount === '' ? totalAmount : Math.min(totalAmount, Math.max(0, Number(paidAmount)));
+  const dueAmount = Math.max(0, Math.round((totalAmount - paid) * 100) / 100);
+  const paymentStatus: 'paid' | 'due' = dueAmount <= 0 ? 'paid' : 'due';
+
+  const isStockExceeded = qty > availableStock;
 
   useEffect(() => {
     if (isOpen) {
@@ -47,12 +84,14 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
         setCustomerId(saleToEdit.customer_id || '');
         setQuantity(saleToEdit.quantity);
         setSellingPrice(saleToEdit.selling_price);
-        setPaymentStatus(saleToEdit.payment_status);
+        setDiscount(saleToEdit.discount || 0);
+        setPaidAmount(saleToEdit.paid_amount !== undefined ? saleToEdit.paid_amount : (saleToEdit.payment_status === 'paid' ? saleToEdit.total_amount : 0));
         setSaleDate(saleToEdit.sale_date);
+        setNotes(saleToEdit.notes || '');
       } else {
         const defaultProd = preselectedProductId
           ? products.find((p) => p.id === preselectedProductId)
-          : products[0];
+          : products.find((p) => p.stock_quantity > 0) || products[0];
 
         if (defaultProd) {
           setProductId(defaultProd.id);
@@ -64,37 +103,46 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
 
         setCustomerId('');
         setQuantity(1);
-        setPaymentStatus('paid');
+        setDiscount(0);
+        setPaidAmount('');
         setSaleDate(new Date().toISOString().split('T')[0]);
+        setNotes('');
       }
       setIsAddingCustomer(false);
       setErrorMsg(null);
     }
   }, [isOpen, preselectedProductId, saleToEdit, products]);
 
-  // Update selling price when product changes
+  // Update selling price and reset paid amount when product changes
   const handleProductChange = (newProdId: string) => {
     setProductId(newProdId);
     const prod = products.find((p) => p.id === newProdId);
     if (prod) {
       setSellingPrice(prod.selling_price);
+      if (paidAmount === '' || !saleToEdit) {
+        setPaidAmount('');
+      }
     }
   };
 
-  const qty = Number(quantity) || 0;
-  const price = Number(sellingPrice) || 0;
-  const totalAmount = qty * price;
+  const handleFullPayment = () => {
+    setPaidAmount(totalAmount);
+  };
+
+  const handleFullDue = () => {
+    setPaidAmount(0);
+  };
 
   const handleCreateCustomerInline = async () => {
     if (!newCustName.trim()) {
-      showToast('গ্রাহকের নাম দিন', 'error');
+      showToast('গ্রাহকের নাম দিন (Customer name is required)', 'error');
       return;
     }
     const { data, error } = await addCustomer({
       name: newCustName.trim(),
       phone: newCustPhone.trim(),
       email: '',
-      address: '',
+      address: newCustAddress.trim(),
       total_purchase: 0,
       due_amount: 0,
     });
@@ -106,7 +154,8 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
       setIsAddingCustomer(false);
       setNewCustName('');
       setNewCustPhone('');
-      showToast('নতুন গ্রাহক যুক্ত হয়েছে', 'success');
+      setNewCustAddress('');
+      showToast('নতুন গ্রাহক সফলভাবে যুক্ত হয়েছে', 'success');
     }
   };
 
@@ -120,44 +169,53 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
     }
 
     if (!selectedProduct) {
-      setErrorMsg('পণ্য পাওয়া যায়নি');
+      setErrorMsg('পণ্য পাওয়া যায়নি (Product not found)');
       return;
     }
 
     if (qty <= 0) {
-      setErrorMsg('বিক্রয় পরিমাণ কমপক্ষে ১ হতে হবে');
+      setErrorMsg('বিক্রয় পরিমাণ কমপক্ষে ১ বা তার বেশি হতে হবে (Quantity must be at least 1)');
       return;
     }
 
-    if (!saleToEdit && selectedProduct.stock_quantity < qty) {
-      setErrorMsg(
-        `পর্যাপ্ত স্টক নেই! এই পণ্যের বর্তমান মজুদ মাত্র ${selectedProduct.stock_quantity}টি।`
-      );
+    if (qty > availableStock) {
+      setErrorMsg(`পর্যাপ্ত স্টক নেই! এই পণ্যের বর্তমান উপলব্ধ মজুদ মাত্র ${availableStock}টি।`);
+      return;
+    }
+
+    if (price < 0) {
+      setErrorMsg('বিক্রয়মূল্য ০ বা তার বেশি হতে হবে (Selling price cannot be negative)');
+      return;
+    }
+
+    if (disc < 0 || disc > subtotal) {
+      setErrorMsg('ছাড়ের পরিমাণ সাবটোটালের চেয়ে বেশি বা ঋণাত্মক হতে পারে না (Invalid discount)');
       return;
     }
 
     setLoading(true);
 
+    const salePayload = {
+      productId,
+      customerId: customerId || null,
+      quantity: qty,
+      sellingPrice: price,
+      subtotal,
+      discount: disc,
+      totalAmount,
+      paidAmount: paid,
+      dueAmount,
+      paymentStatus,
+      saleDate,
+      notes: notes.trim() || undefined,
+    };
+
     let res: { error: string | null };
 
     if (saleToEdit) {
-      res = await updateSale(saleToEdit.id, {
-        productId,
-        customerId: customerId || null,
-        quantity: qty,
-        sellingPrice: price,
-        paymentStatus,
-        saleDate,
-      });
+      res = await updateSale(saleToEdit.id, salePayload);
     } else {
-      res = await recordSale({
-        productId,
-        customerId: customerId || null,
-        quantity: qty,
-        sellingPrice: price,
-        paymentStatus,
-        saleDate,
-      });
+      res = await recordSale(salePayload);
     }
 
     setLoading(false);
@@ -167,7 +225,7 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
     } else {
       showToast(
         saleToEdit
-          ? 'বিক্রয় রেকর্ড সফলভাবে আপডেট করা হয়েছে!'
+          ? 'বিক্রয় রেকর্ড ও স্টক সফলভাবে আপডেট করা হয়েছে!'
           : 'বিক্রয় সফলভাবে সম্পন্ন হয়েছে! স্টক হালনাগাদ করা হয়েছে।',
         'success'
       );
@@ -180,14 +238,14 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={saleToEdit ? 'বিক্রয় রেকর্ড এডিট করুন (Edit Sale)' : 'নতুন বিক্রয় রেকর্ড করুন (Record New Sale)'}
-      subtitle="পণ্য বিক্রি করলে স্বয়ংক্রিয়ভাবে স্টক হ্রাস ও গ্রাহক খাতা আপডেট হবে"
-      maxWidth="max-w-lg"
+      subtitle="পণ্য বিক্রি করলে স্বয়ংক্রিয়ভাবে স্টক হ্রাস ও গ্রাহকের হিসাব হালনাগাদ হবে"
+      maxWidth="max-w-xl"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {errorMsg && (
           <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{errorMsg}</span>
+            <span className="font-medium">{errorMsg}</span>
           </div>
         )}
 
@@ -200,30 +258,51 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
             value={productId}
             onChange={(e) => handleProductChange(e.target.value)}
             required
-            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
           >
             <option value="" disabled>
               -- পণ্য বেছে নিন --
             </option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id} disabled={p.stock_quantity <= 0}>
-                {p.name} {p.sku ? `(${p.sku})` : ''} - স্টক: {p.stock_quantity}টি{' '}
-                {p.stock_quantity <= 0 ? '(স্টক শেষ)' : ''}
-              </option>
-            ))}
+            {products.map((p) => {
+              const isSelected = p.id === productId;
+              const effectiveStock = (saleToEdit && saleToEdit.product_id === p.id)
+                ? (p.stock_quantity || 0) + (saleToEdit.quantity || 0)
+                : p.stock_quantity;
+              const isOutOfStock = effectiveStock <= 0;
+
+              return (
+                <option
+                  key={p.id}
+                  value={p.id}
+                  disabled={isOutOfStock && !isSelected}
+                >
+                  {p.product_name || p.name} {p.sku ? `(SKU: ${p.sku})` : ''} — স্টক: {effectiveStock} {p.unit || 'টি'} — {formatCurrency(p.selling_price)} {isOutOfStock ? '[স্টক শেষ]' : ''}
+                </option>
+              );
+            })}
           </select>
+
           {selectedProduct && (
-            <p className="text-[11px] text-slate-500 mt-1">
-              বর্তমান মজুদ:{' '}
-              <strong className={selectedProduct.stock_quantity <= 5 ? 'text-rose-600' : 'text-emerald-700'}>
-                {selectedProduct.stock_quantity}টি
-              </strong>
-              {' '}• নিয়মিত বিক্রয়মূল্য: {formatCurrency(selectedProduct.selling_price)}
-            </p>
+            <div className="flex items-center justify-between mt-1 text-[11px]">
+              <span className="text-slate-500">
+                বর্তমান উপলব্ধ স্টক:{' '}
+                <strong className={availableStock <= 5 ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold'}>
+                  {availableStock} {selectedProduct.unit || 'টি'}
+                </strong>
+                {saleToEdit && saleToEdit.product_id === productId && (
+                  <span className="text-slate-400 ml-1">
+                    (মজুদ {selectedProduct.stock_quantity} + পূর্বের বিক্রয় {saleToEdit.quantity})
+                  </span>
+                )}
+              </span>
+              <span className="text-slate-500">
+                নিয়মিত দর: <strong>{formatCurrency(selectedProduct.selling_price)}</strong>
+              </span>
+            </div>
           )}
         </div>
 
-        {/* Customer Selector with quick add */}
+        {/* Customer Selector with inline quick add */}
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="block text-xs font-semibold text-slate-700">
@@ -232,36 +311,55 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
             <button
               type="button"
               onClick={() => setIsAddingCustomer(!isAddingCustomer)}
-              className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1"
+              className="text-xs text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
               <span>{isAddingCustomer ? 'তালিকা থেকে বাছুন' : 'নতুন গ্রাহক যোগ করুন'}</span>
             </button>
           </div>
 
           {isAddingCustomer ? (
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+              <span className="text-[11px] font-bold text-slate-700 block">নতুন গ্রাহকের তথ্য</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  placeholder="গ্রাহকের নাম *"
+                  value={newCustName}
+                  onChange={(e) => setNewCustName(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-emerald-500"
+                />
+                <input
+                  type="tel"
+                  placeholder="মোবাইল নম্বর (ঐচ্ছিক)"
+                  value={newCustPhone}
+                  onChange={(e) => setNewCustPhone(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
               <input
                 type="text"
-                placeholder="গ্রাহকের নাম *"
-                value={newCustName}
-                onChange={(e) => setNewCustName(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs"
+                placeholder="ঠিকানা (ঐচ্ছিক)"
+                value={newCustAddress}
+                onChange={(e) => setNewCustAddress(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-emerald-500"
               />
-              <input
-                type="tel"
-                placeholder="মোবাইল নম্বর (ঐচ্ছিক)"
-                value={newCustPhone}
-                onChange={(e) => setNewCustPhone(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs"
-              />
-              <button
-                type="button"
-                onClick={handleCreateCustomerInline}
-                className="w-full py-1.5 bg-slate-800 text-white rounded-lg text-xs font-semibold hover:bg-slate-900"
-              >
-                গ্রাহক সংরক্ষণ করুন
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleCreateCustomerInline}
+                  className="flex-1 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-colors cursor-pointer"
+                >
+                  গ্রাহক সংরক্ষণ করুন
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddingCustomer(false)}
+                  className="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-300 transition-colors cursor-pointer"
+                >
+                  বাতিল
+                </button>
+              </div>
             </div>
           ) : (
             <div className="relative">
@@ -269,12 +367,12 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
               <select
                 value={customerId}
                 onChange={(e) => setCustomerId(e.target.value)}
-                className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
               >
                 <option value="">সরাসরি নগদ ক্রেতা (Cash Customer / Walk-in)</option>
                 {customers.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} {c.phone ? `(${c.phone})` : ''} {c.due_amount > 0 ? `[বাকি: ${formatCurrency(c.due_amount)}]` : ''}
+                    {c.name} {c.phone ? `(${c.phone})` : ''} {c.due_amount > 0 ? `[বকেয়া: ${formatCurrency(c.due_amount)}]` : ''}
                   </option>
                 ))}
               </select>
@@ -282,7 +380,7 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
           )}
         </div>
 
-        {/* Quantity & Selling Price */}
+        {/* Quantity & Unit Selling Price */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -291,12 +389,22 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
             <input
               type="number"
               min="1"
-              max={selectedProduct ? selectedProduct.stock_quantity : undefined}
+              max={availableStock > 0 ? availableStock : 1}
               required
               value={quantity}
               onChange={(e) => setQuantity(e.target.value === '' ? '' : Number(e.target.value))}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white font-bold"
+              className={`w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl text-sm focus:outline-none focus:ring-2 font-bold ${
+                isStockExceeded
+                  ? 'border-rose-300 focus:ring-rose-500 text-rose-700 bg-rose-50/50'
+                  : 'border-slate-200 focus:ring-emerald-500 text-slate-900 focus:bg-white'
+              }`}
             />
+            {isStockExceeded && (
+              <p className="text-[11px] text-rose-600 font-semibold mt-1 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>মজুদের চেয়ে বেশি! উপলব্ধ: {availableStock}টি</span>
+              </p>
+            )}
           </div>
 
           <div>
@@ -310,59 +418,120 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
               required
               value={sellingPrice}
               onChange={(e) => setSellingPrice(e.target.value === '' ? '' : Number(e.target.value))}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white font-medium"
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white font-medium text-slate-900"
             />
           </div>
         </div>
 
-        {/* Total Calculation Display */}
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between">
+        {/* Subtotal, Discount & Total Amount Breakdown */}
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <span className="text-xs text-emerald-800 font-semibold block">মোট বিল (Total Amount)</span>
-            <span className="text-[11px] text-emerald-600">হিসাব: {qty} × {price}</span>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              সাবটোটাল (Subtotal ৳)
+            </label>
+            <div className="w-full px-3.5 py-2.5 bg-slate-100/70 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700">
+              {formatCurrency(subtotal)}
+            </div>
           </div>
-          <div className="text-2xl font-black text-emerald-900">
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              ছাড় / ডিসকাউন্ট (Discount ৳)
+            </label>
+            <div className="relative">
+              <Percent className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <input
+                type="number"
+                min="0"
+                max={subtotal}
+                step="any"
+                value={discount}
+                onChange={(e) => setDiscount(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
+                className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white font-medium"
+                placeholder="0"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Grand Total Highlight Card */}
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between shadow-xs">
+          <div>
+            <span className="text-xs text-emerald-800 font-bold block">মোট প্রদেয় মূল্য (Total Amount)</span>
+            <span className="text-[11px] text-emerald-600">
+              হিসাব: {qty} × {price} {disc > 0 ? `- ৳${disc} ছাড়` : ''}
+            </span>
+          </div>
+          <div className="text-2xl font-black text-emerald-900 tracking-tight">
             {formatCurrency(totalAmount)}
           </div>
         </div>
 
-        {/* Payment Status & Sale Date */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              পরিশোধ স্ট্যাটাস (Payment Status) *
+        {/* Paid Amount and Due Amount Calculation */}
+        <div className="p-3.5 bg-slate-50/80 border border-slate-200 rounded-2xl space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <CreditCard className="w-3.5 h-3.5 text-slate-500" />
+              <span>পরিশোধিত টাকা (Paid Amount ৳)</span>
             </label>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => setPaymentStatus('paid')}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-colors ${
-                  paymentStatus === 'paid'
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                }`}
+                onClick={handleFullPayment}
+                className="px-2 py-0.5 text-[11px] font-bold rounded-md bg-emerald-100 text-emerald-800 hover:bg-emerald-200 transition-colors cursor-pointer"
               >
-                পরিশোধিত (Paid)
+                সম্পূর্ণ পরিশোধ
               </button>
               <button
                 type="button"
-                onClick={() => setPaymentStatus('due')}
-                className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-colors ${
-                  paymentStatus === 'due'
-                    ? 'bg-rose-600 text-white border-rose-600'
-                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                }`}
+                onClick={handleFullDue}
+                className="px-2 py-0.5 text-[11px] font-bold rounded-md bg-rose-100 text-rose-800 hover:bg-rose-200 transition-colors cursor-pointer"
               >
-                বাকি (Due)
+                সম্পূর্ণ বাকি
               </button>
             </div>
-            {paymentStatus === 'due' && !customerId && (
-              <p className="text-[10px] text-amber-600 mt-1">
-                পরামর্শ: বাকি রাখার জন্য নির্দিষ্ট গ্রাহক নির্বাচন করা উত্তম।
-              </p>
-            )}
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <input
+                type="number"
+                min="0"
+                max={totalAmount}
+                step="any"
+                value={paidAmount === '' ? totalAmount : paidAmount}
+                onChange={(e) => setPaidAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-between px-3 py-2 bg-white border border-slate-200 rounded-xl">
+              <div>
+                <span className="text-[10px] text-slate-400 block font-medium">বকেয়া (Due)</span>
+                <span className={`text-sm font-black ${dueAmount > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                  {formatCurrency(dueAmount)}
+                </span>
+              </div>
+              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                dueAmount <= 0
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-rose-100 text-rose-800'
+              }`}>
+                {dueAmount <= 0 ? 'পরিশোধিত (Paid)' : 'বাকি (Due)'}
+              </span>
+            </div>
+          </div>
+
+          {dueAmount > 0 && !customerId && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>পরামর্শ: বাকি রাখার ক্ষেত্রে ওপরের অপশন থেকে গ্রাহক নির্বাচন করুন।</span>
+            </p>
+          )}
+        </div>
+
+        {/* Sale Date & Notes */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               বিক্রয়ের তারিখ (Sale Date)
@@ -378,27 +547,48 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
               />
             </div>
           </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              নোট / মন্তব্য (Notes - ঐচ্ছিক)
+            </label>
+            <div className="relative">
+              <FileText className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <input
+                type="text"
+                placeholder="যেমন: রসিদ নং বা বিশেষ মন্তব্য"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+              />
+            </div>
+          </div>
         </div>
 
+        {/* Modal Actions */}
         <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+            className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
           >
             বাতিল (Cancel)
           </button>
           <button
             type="submit"
-            disabled={loading || !productId || (selectedProduct ? selectedProduct.stock_quantity < qty : false)}
-            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
+            disabled={loading || !productId || isStockExceeded || qty <= 0}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {loading ? (
               <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               <>
                 <Check className="w-4 h-4" />
-                <span>বিক্রয় সম্পন্ন করুন (Confirm Sale)</span>
+                <span>
+                  {saleToEdit
+                    ? 'পরিবর্তন সংরক্ষণ করুন (Save Changes)'
+                    : 'বিক্রয় সম্পন্ন করুন (Confirm Sale)'}
+                </span>
               </>
             )}
           </button>

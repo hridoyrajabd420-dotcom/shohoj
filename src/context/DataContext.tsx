@@ -3,8 +3,10 @@ import { useAuth } from './AuthContext';
 import { getSupabaseClient } from '../lib/supabase';
 import {
   Product,
+  ProductInput,
   Customer,
   Sale,
+  SaleInput,
   Expense,
   Supplier,
   Purchase,
@@ -28,6 +30,7 @@ interface DataContextType {
   metrics: DashboardMetrics;
   lowStockProducts: Product[];
   refreshData: () => Promise<void>;
+  isProductsTableMissing: boolean;
 
   // Part 2 Pro State
   suppliers: Supplier[];
@@ -40,7 +43,7 @@ interface DataContextType {
   businessSettings: BusinessSettings | null;
 
   // Product actions
-  addProduct: (product: Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => Promise<{ error: string | null }>;
+  addProduct: (product: ProductInput | Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => Promise<{ error: string | null }>;
   updateProduct: (id: string, product: Partial<Product>) => Promise<{ error: string | null }>;
   deleteProduct: (id: string) => Promise<{ error: string | null }>;
 
@@ -49,26 +52,9 @@ interface DataContextType {
   updateCustomer: (id: string, customer: Partial<Customer>) => Promise<{ error: string | null }>;
   deleteCustomer: (id: string) => Promise<{ error: string | null }>;
 
-  // Sale actions
-  recordSale: (saleData: {
-    productId: string;
-    customerId: string | null;
-    quantity: number;
-    sellingPrice: number;
-    paymentStatus: 'paid' | 'due';
-    saleDate: string;
-  }) => Promise<{ error: string | null }>;
-  updateSale: (
-    id: string,
-    saleData: {
-      productId: string;
-      customerId: string | null;
-      quantity: number;
-      sellingPrice: number;
-      paymentStatus: 'paid' | 'due';
-      saleDate: string;
-    }
-  ) => Promise<{ error: string | null }>;
+  // Sale actions (Part 1 Step 4)
+  recordSale: (saleData: SaleInput) => Promise<{ error: string | null }>;
+  updateSale: (id: string, saleData: SaleInput) => Promise<{ error: string | null }>;
   deleteSale: (id: string) => Promise<{ error: string | null }>;
 
   // Expense actions
@@ -143,6 +129,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [isProductsTableMissing, setIsProductsTableMissing] = useState<boolean>(false);
 
   // Part 2 State
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -180,13 +167,67 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const [prodsRes, custsRes, salesRes, expsRes] = await Promise.all([
         supabase.from('products').select('*').order('created_at', { ascending: false }),
         supabase.from('customers').select('*').order('created_at', { ascending: false }),
-        supabase.from('sales').select('*').order('sale_date', { ascending: false }),
+        supabase.from('sales').select('*').order('sale_date', { ascending: false }).order('created_at', { ascending: false }),
         supabase.from('expenses').select('*').order('date', { ascending: false }),
       ]);
 
-      if (prodsRes.data) setProducts(prodsRes.data as Product[]);
+      if (prodsRes.data) {
+        const mappedProducts: Product[] = prodsRes.data.map((p: any) => {
+          const prodName = p.product_name || p.name || 'Unnamed Product';
+          const lowThresh = p.low_stock_threshold !== undefined && p.low_stock_threshold !== null
+            ? Number(p.low_stock_threshold)
+            : (p.low_stock_level !== undefined && p.low_stock_level !== null ? Number(p.low_stock_level) : 5);
+          return {
+            ...p,
+            id: p.id,
+            user_id: p.user_id,
+            product_name: prodName,
+            name: prodName,
+            category: p.category || '',
+            sku: p.sku || '',
+            purchase_price: Number(p.purchase_price) || 0,
+            selling_price: Number(p.selling_price) || 0,
+            stock_quantity: Number(p.stock_quantity) || 0,
+            low_stock_threshold: lowThresh,
+            low_stock_level: lowThresh,
+            unit: p.unit || 'pcs',
+            description: p.description || '',
+            created_at: p.created_at,
+            updated_at: p.updated_at,
+          };
+        });
+        setProducts(mappedProducts);
+        setIsProductsTableMissing(false);
+      } else if (prodsRes.error) {
+        if (prodsRes.error.code === '42P01' || prodsRes.error.message?.includes('relation "public.products" does not exist')) {
+          setIsProductsTableMissing(true);
+        }
+      }
       if (custsRes.data) setCustomers(custsRes.data as Customer[]);
-      if (salesRes.data) setSales(salesRes.data as Sale[]);
+      if (salesRes.data) {
+        const mappedSales: Sale[] = salesRes.data.map((s: any) => {
+          const qty = Number(s.quantity) || 1;
+          const price = Number(s.selling_price) || 0;
+          const sub = s.subtotal !== undefined && s.subtotal !== null ? Number(s.subtotal) : qty * price;
+          const disc = Number(s.discount) || 0;
+          const tot = s.total_amount !== undefined && s.total_amount !== null ? Number(s.total_amount) : Math.max(0, sub - disc);
+          const paid = s.paid_amount !== undefined && s.paid_amount !== null ? Number(s.paid_amount) : (s.payment_status === 'paid' ? tot : 0);
+          const due = s.due_amount !== undefined && s.due_amount !== null ? Number(s.due_amount) : (s.payment_status === 'due' ? tot : Math.max(0, tot - paid));
+          return {
+            ...s,
+            quantity: qty,
+            selling_price: price,
+            subtotal: sub,
+            discount: disc,
+            total_amount: tot,
+            paid_amount: paid,
+            due_amount: due,
+            payment_status: due <= 0 ? 'paid' : 'due',
+            notes: s.notes || '',
+          };
+        });
+        setSales(mappedSales);
+      }
       if (expsRes.data) setExpenses(expsRes.data as Expense[]);
 
       // 2. Part 2 tables (safely queried so missing tables don't block)
@@ -259,26 +300,106 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user, isConfigured, refreshData]);
 
   // ==================== Product Operations ====================
-  const addProduct = async (productData: Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
+  const addProduct = async (productData: ProductInput | Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
     const supabase = getSupabaseClient();
     if (!supabase || !user) return { error: 'Not authenticated' };
 
     try {
-      const newProduct = {
-        ...productData,
+      const prodName = ('product_name' in productData && productData.product_name) || ('name' in productData && productData.name) || '';
+      const threshold = productData.low_stock_threshold ?? productData.low_stock_level ?? 5;
+
+      const newProduct: Record<string, any> = {
         user_id: user.id,
+        product_name: prodName,
+        category: productData.category || '',
+        sku: productData.sku || '',
+        purchase_price: Number(productData.purchase_price) || 0,
+        selling_price: Number(productData.selling_price) || 0,
+        stock_quantity: Number(productData.stock_quantity) || 0,
+        low_stock_threshold: threshold,
+        unit: productData.unit || 'pcs',
+        description: productData.description || '',
       };
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('products')
         .insert(newProduct)
         .select()
         .single();
 
+      // Graceful fallback if table is an earlier schema version with 'name' or 'low_stock_level' or NOT NULL constraint on 'name'
+      if (error && (
+        error.message?.includes('product_name') ||
+        error.message?.includes('low_stock_threshold') ||
+        error.message?.includes('category') ||
+        error.message?.includes('unit') ||
+        error.message?.includes('description') ||
+        error.message?.includes('violates not-null') ||
+        error.message?.includes('column "name"') ||
+        error.code === '42703' ||
+        error.code === '23502'
+      )) {
+        // Try with both 'name' and 'product_name' populated
+        const legacyWithBoth: Record<string, any> = {
+          user_id: user.id,
+          name: prodName,
+          product_name: prodName,
+          category: productData.category || '',
+          sku: productData.sku || '',
+          purchase_price: Number(productData.purchase_price) || 0,
+          selling_price: Number(productData.selling_price) || 0,
+          stock_quantity: Number(productData.stock_quantity) || 0,
+          low_stock_threshold: threshold,
+          low_stock_level: threshold,
+          unit: productData.unit || 'pcs',
+          description: productData.description || '',
+        };
+        let retry = await supabase.from('products').insert(legacyWithBoth).select().single();
+        if (retry.error) {
+          // Strictly original legacy schema
+          const strictLegacy: Record<string, any> = {
+            user_id: user.id,
+            name: prodName,
+            sku: productData.sku || '',
+            purchase_price: Number(productData.purchase_price) || 0,
+            selling_price: Number(productData.selling_price) || 0,
+            stock_quantity: Number(productData.stock_quantity) || 0,
+            low_stock_level: threshold,
+          };
+          retry = await supabase.from('products').insert(strictLegacy).select().single();
+        }
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) return { error: error.message };
 
       if (data) {
-        setProducts((prev) => [data as Product, ...prev]);
+        const d = data as any;
+        const normalized: Product = {
+          ...d,
+          id: d.id,
+          user_id: d.user_id,
+          product_name: d.product_name || d.name || prodName,
+          name: d.name || d.product_name || prodName,
+          category: d.category || productData.category || '',
+          sku: d.sku || productData.sku || '',
+          purchase_price: Number(d.purchase_price) || 0,
+          selling_price: Number(d.selling_price) || 0,
+          stock_quantity: Number(d.stock_quantity) || 0,
+          low_stock_threshold: d.low_stock_threshold !== undefined && d.low_stock_threshold !== null
+            ? Number(d.low_stock_threshold)
+            : threshold,
+          low_stock_level: d.low_stock_level !== undefined && d.low_stock_level !== null
+            ? Number(d.low_stock_level)
+            : threshold,
+          unit: d.unit || productData.unit || 'pcs',
+          description: d.description || productData.description || '',
+          created_at: d.created_at,
+          updated_at: d.updated_at,
+        };
+        setProducts((prev) => [normalized, ...prev]);
+        setIsProductsTableMissing(false);
       }
       return { error: null };
     } catch (err: unknown) {
@@ -291,22 +412,102 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!supabase || !user) return { error: 'Not authenticated' };
 
     try {
-      const updated = {
-        ...productData,
+      const prodName = productData.product_name ?? productData.name;
+      const threshold = productData.low_stock_threshold ?? productData.low_stock_level;
+
+      const updated: Record<string, any> = {
         updated_at: new Date().toISOString(),
       };
+      if (prodName !== undefined) updated.product_name = prodName;
+      if (productData.category !== undefined) updated.category = productData.category;
+      if (productData.sku !== undefined) updated.sku = productData.sku;
+      if (productData.purchase_price !== undefined) updated.purchase_price = Number(productData.purchase_price);
+      if (productData.selling_price !== undefined) updated.selling_price = Number(productData.selling_price);
+      if (productData.stock_quantity !== undefined) updated.stock_quantity = Number(productData.stock_quantity);
+      if (threshold !== undefined) updated.low_stock_threshold = Number(threshold);
+      if (productData.unit !== undefined) updated.unit = productData.unit;
+      if (productData.description !== undefined) updated.description = productData.description;
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('products')
         .update(updated)
         .eq('id', id)
         .select()
         .single();
 
+      // Graceful fallback if table uses legacy column names
+      if (error && (
+        error.message?.includes('product_name') ||
+        error.message?.includes('low_stock_threshold') ||
+        error.message?.includes('category') ||
+        error.message?.includes('unit') ||
+        error.message?.includes('description') ||
+        error.message?.includes('violates not-null') ||
+        error.code === '42703' ||
+        error.code === '23502'
+      )) {
+        const legacyUpdate: Record<string, any> = {
+          updated_at: new Date().toISOString(),
+        };
+        if (prodName !== undefined) {
+          legacyUpdate.name = prodName;
+          legacyUpdate.product_name = prodName;
+        }
+        if (productData.sku !== undefined) legacyUpdate.sku = productData.sku;
+        if (productData.purchase_price !== undefined) legacyUpdate.purchase_price = Number(productData.purchase_price);
+        if (productData.selling_price !== undefined) legacyUpdate.selling_price = Number(productData.selling_price);
+        if (productData.stock_quantity !== undefined) legacyUpdate.stock_quantity = Number(productData.stock_quantity);
+        if (threshold !== undefined) {
+          legacyUpdate.low_stock_level = Number(threshold);
+          legacyUpdate.low_stock_threshold = Number(threshold);
+        }
+
+        let retry = await supabase.from('products').update(legacyUpdate).eq('id', id).select().single();
+        if (retry.error) {
+          // Strict minimal legacy update
+          const minimalLegacy: Record<string, any> = {
+            updated_at: new Date().toISOString(),
+          };
+          if (prodName !== undefined) minimalLegacy.name = prodName;
+          if (productData.sku !== undefined) minimalLegacy.sku = productData.sku;
+          if (productData.purchase_price !== undefined) minimalLegacy.purchase_price = Number(productData.purchase_price);
+          if (productData.selling_price !== undefined) minimalLegacy.selling_price = Number(productData.selling_price);
+          if (productData.stock_quantity !== undefined) minimalLegacy.stock_quantity = Number(productData.stock_quantity);
+          if (threshold !== undefined) minimalLegacy.low_stock_level = Number(threshold);
+
+          retry = await supabase.from('products').update(minimalLegacy).eq('id', id).select().single();
+        }
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) return { error: error.message };
 
       if (data) {
-        setProducts((prev) => prev.map((p) => (p.id === id ? (data as Product) : p)));
+        const d = data as any;
+        const normalized: Product = {
+          ...d,
+          id: d.id,
+          user_id: d.user_id,
+          product_name: d.product_name || d.name || (prodName ?? ''),
+          name: d.name || d.product_name || (prodName ?? ''),
+          category: d.category ?? productData.category ?? '',
+          sku: d.sku ?? productData.sku ?? '',
+          purchase_price: Number(d.purchase_price) || 0,
+          selling_price: Number(d.selling_price) || 0,
+          stock_quantity: Number(d.stock_quantity) || 0,
+          low_stock_threshold: d.low_stock_threshold !== undefined && d.low_stock_threshold !== null
+            ? Number(d.low_stock_threshold)
+            : (threshold ?? 5),
+          low_stock_level: d.low_stock_level !== undefined && d.low_stock_level !== null
+            ? Number(d.low_stock_level)
+            : (threshold ?? 5),
+          unit: d.unit ?? productData.unit ?? 'pcs',
+          description: d.description ?? productData.description ?? '',
+          created_at: d.created_at,
+          updated_at: d.updated_at,
+        };
+        setProducts((prev) => prev.map((p) => (p.id === id ? normalized : p)));
       }
       return { error: null };
     } catch (err: unknown) {
@@ -401,61 +602,149 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ==================== Sale Operations ====================
-  const recordSale = async (saleData: {
-    productId: string;
-    customerId: string | null;
-    quantity: number;
-    sellingPrice: number;
-    paymentStatus: 'paid' | 'due';
-    saleDate: string;
-  }) => {
+  // ==================== Sale Operations (Part 1 Step 4) ====================
+  const recordSale = async (saleData: SaleInput) => {
     const supabase = getSupabaseClient();
     if (!supabase || !user) return { error: 'Not authenticated' };
 
     try {
       const product = products.find((p) => p.id === saleData.productId);
-      if (!product) return { error: 'Product not found' };
+      if (!product) return { error: 'পণ্য পাওয়া যায়নি (Product not found)' };
 
-      if (product.stock_quantity < saleData.quantity) {
-        return { error: `পর্যাপ্ত স্টক নেই! বর্তমান স্টক: ${product.stock_quantity}` };
+      const qty = Number(saleData.quantity) || 1;
+      const price = Number(saleData.sellingPrice) || 0;
+
+      if (product.stock_quantity < qty) {
+        return { error: `পর্যাপ্ত স্টক নেই! এই পণ্যের বর্তমান মজুদ মাত্র ${product.stock_quantity}টি।` };
       }
 
-      const totalAmount = saleData.quantity * saleData.sellingPrice;
+      const subtotal = saleData.subtotal !== undefined ? Number(saleData.subtotal) : qty * price;
+      const discount = Number(saleData.discount) || 0;
+      const totalAmount = saleData.totalAmount !== undefined ? Number(saleData.totalAmount) : Math.max(0, subtotal - discount);
+      const paidAmount = saleData.paidAmount !== undefined ? Number(saleData.paidAmount) : (saleData.paymentStatus === 'paid' ? totalAmount : 0);
+      const dueAmount = saleData.dueAmount !== undefined ? Number(saleData.dueAmount) : Math.max(0, totalAmount - paidAmount);
+      const paymentStatus: 'paid' | 'due' = dueAmount <= 0 ? 'paid' : 'due';
+      const normalizedCustomerId = saleData.customerId && String(saleData.customerId).trim() ? String(saleData.customerId).trim() : null;
+      const saleDate = saleData.saleDate || new Date().toISOString().split('T')[0];
+      const notes = saleData.notes?.trim() || null;
 
-      // 1. Insert Sale record
-      const newSale = {
+      // 1. Try atomic PostgreSQL transaction function if deployed
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('record_sale_transaction', {
+          p_product_id: saleData.productId,
+          p_customer_id: normalizedCustomerId,
+          p_quantity: qty,
+          p_selling_price: price,
+          p_subtotal: subtotal,
+          p_discount: discount,
+          p_total_amount: totalAmount,
+          p_paid_amount: paidAmount,
+          p_due_amount: dueAmount,
+          p_payment_status: paymentStatus,
+          p_sale_date: saleDate,
+          p_notes: notes,
+        });
+
+        if (!rpcError && rpcData?.success) {
+          // Update local state with the returned new stock
+          const newSaleObj: Sale = {
+            id: rpcData.sale_id,
+            user_id: user.id,
+            product_id: saleData.productId,
+            customer_id: normalizedCustomerId,
+            quantity: qty,
+            selling_price: price,
+            subtotal,
+            discount,
+            total_amount: totalAmount,
+            paid_amount: paidAmount,
+            due_amount: dueAmount,
+            payment_status: paymentStatus,
+            sale_date: saleDate,
+            notes: notes || undefined,
+            created_at: new Date().toISOString(),
+          };
+
+          setSales((prev) => [newSaleObj, ...prev]);
+          setProducts((prev) =>
+            prev.map((p) => (p.id === saleData.productId ? { ...p, stock_quantity: Math.max(0, p.stock_quantity - qty) } : p))
+          );
+          if (normalizedCustomerId) {
+            setCustomers((prev) =>
+              prev.map((c) =>
+                c.id === normalizedCustomerId
+                  ? {
+                      ...c,
+                      total_purchase: Number(c.total_purchase || 0) + totalAmount,
+                      due_amount: Number(c.due_amount || 0) + dueAmount,
+                    }
+                  : c
+              )
+            );
+          }
+          return { error: null };
+        }
+      } catch {
+        // Fallback to client-side sequential transaction
+      }
+
+      // 2. Client-side Safe Sequential Transaction
+      const newSaleRecord: Record<string, any> = {
         user_id: user.id,
         product_id: saleData.productId,
-        customer_id: saleData.customerId,
-        quantity: saleData.quantity,
-        selling_price: saleData.sellingPrice,
+        customer_id: normalizedCustomerId,
+        quantity: qty,
+        selling_price: price,
+        subtotal,
+        discount,
         total_amount: totalAmount,
-        payment_status: saleData.paymentStatus,
-        sale_date: saleData.saleDate,
+        paid_amount: paidAmount,
+        due_amount: dueAmount,
+        payment_status: paymentStatus,
+        sale_date: saleDate,
+        notes,
       };
 
-      const { data: saleResult, error: saleError } = await supabase
+      let { data: saleResult, error: saleError } = await supabase
         .from('sales')
-        .insert(newSale)
+        .insert(newSaleRecord)
         .select()
         .single();
 
+      // Graceful fallback if table doesn't have the new Step 4 columns yet
+      if (saleError && (saleError.code === '42703' || saleError.message?.includes('subtotal') || saleError.message?.includes('discount') || saleError.message?.includes('paid_amount') || saleError.message?.includes('due_amount') || saleError.message?.includes('notes'))) {
+        const legacySaleRecord = {
+          user_id: user.id,
+          product_id: saleData.productId,
+          customer_id: normalizedCustomerId,
+          quantity: qty,
+          selling_price: price,
+          total_amount: totalAmount,
+          payment_status: paymentStatus,
+          sale_date: saleDate,
+        };
+        const retry = await supabase.from('sales').insert(legacySaleRecord).select().single();
+        saleResult = retry.data;
+        saleError = retry.error;
+      }
+
       if (saleError) return { error: saleError.message };
 
-      // 2. Decrement Product Stock
-      const newStock = Math.max(0, product.stock_quantity - saleData.quantity);
-      await updateProduct(product.id, { stock_quantity: newStock });
+      // 3. Decrement Product Stock
+      const newStock = Math.max(0, product.stock_quantity - qty);
+      const stockRes = await updateProduct(product.id, { stock_quantity: newStock });
+      if (stockRes.error) {
+        // Rollback sale if stock update failed
+        await supabase.from('sales').delete().eq('id', (saleResult as Sale).id);
+        return { error: `স্টক আপডেট ব্যর্থ: ${stockRes.error}` };
+      }
 
-      // 3. Update Customer records if customer attached
-      if (saleData.customerId) {
-        const customer = customers.find((c) => c.id === saleData.customerId);
+      // 4. Update Customer records if customer attached
+      if (normalizedCustomerId) {
+        const customer = customers.find((c) => c.id === normalizedCustomerId);
         if (customer) {
           const updatedTotalPurchase = Number(customer.total_purchase || 0) + totalAmount;
-          const updatedDue =
-            saleData.paymentStatus === 'due'
-              ? Number(customer.due_amount || 0) + totalAmount
-              : Number(customer.due_amount || 0);
+          const updatedDue = Number(customer.due_amount || 0) + dueAmount;
 
           await updateCustomer(customer.id, {
             total_purchase: updatedTotalPurchase,
@@ -470,14 +759,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             sale_id: (saleResult as Sale).id,
             user_id: user.id,
             product_id: saleData.productId,
-            quantity: saleData.quantity,
-            unit_price: saleData.sellingPrice,
+            quantity: qty,
+            unit_price: price,
             total_price: totalAmount,
           });
         } catch {
           // Safe fallback
         }
-        setSales((prev) => [saleResult as Sale, ...prev]);
+
+        const normalizedSale: Sale = {
+          ...(saleResult as any),
+          quantity: qty,
+          selling_price: price,
+          subtotal,
+          discount,
+          total_amount: totalAmount,
+          paid_amount: paidAmount,
+          due_amount: dueAmount,
+          payment_status: paymentStatus,
+          notes: notes || undefined,
+        };
+        setSales((prev) => [normalizedSale, ...prev]);
       }
 
       return { error: null };
@@ -486,17 +788,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateSale = async (
-    id: string,
-    saleData: {
-      productId: string;
-      customerId: string | null;
-      quantity: number;
-      sellingPrice: number;
-      paymentStatus: 'paid' | 'due';
-      saleDate: string;
-    }
-  ) => {
+  const updateSale = async (id: string, saleData: SaleInput) => {
     const supabase = getSupabaseClient();
     if (!supabase || !user) return { error: 'Not authenticated' };
 
@@ -506,91 +798,229 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const oldProduct = products.find((p) => p.id === oldSale.product_id);
       const newProduct = products.find((p) => p.id === saleData.productId);
-      if (!newProduct) return { error: 'Product not found' };
+      if (!newProduct) return { error: 'পণ্য পাওয়া যায়নি (Product not found)' };
+
+      const qty = Number(saleData.quantity) || 1;
+      const price = Number(saleData.sellingPrice) || 0;
 
       // Validate stock availability
       if (oldSale.product_id === saleData.productId) {
         const availableStock = (oldProduct?.stock_quantity || 0) + oldSale.quantity;
-        if (availableStock < saleData.quantity) {
+        if (availableStock < qty) {
           return { error: `পর্যাপ্ত স্টক নেই! বর্তমান উপলব্ধ স্টক: ${availableStock}` };
         }
       } else {
-        if (newProduct.stock_quantity < saleData.quantity) {
-          return { error: `পর্যাপ্ত স্টক নেই! ${newProduct.name}-এর বর্তমান স্টক: ${newProduct.stock_quantity}` };
+        if (newProduct.stock_quantity < qty) {
+          return { error: `পর্যাপ্ত স্টক নেই! ${newProduct.product_name || newProduct.name}-এর বর্তমান স্টক: ${newProduct.stock_quantity}` };
         }
       }
 
-      const totalAmount = saleData.quantity * saleData.sellingPrice;
+      const subtotal = saleData.subtotal !== undefined ? Number(saleData.subtotal) : qty * price;
+      const discount = Number(saleData.discount) || 0;
+      const totalAmount = saleData.totalAmount !== undefined ? Number(saleData.totalAmount) : Math.max(0, subtotal - discount);
+      const paidAmount = saleData.paidAmount !== undefined ? Number(saleData.paidAmount) : (saleData.paymentStatus === 'paid' ? totalAmount : 0);
+      const dueAmount = saleData.dueAmount !== undefined ? Number(saleData.dueAmount) : Math.max(0, totalAmount - paidAmount);
+      const paymentStatus: 'paid' | 'due' = dueAmount <= 0 ? 'paid' : 'due';
+      const normalizedCustomerId = saleData.customerId && String(saleData.customerId).trim() ? String(saleData.customerId).trim() : null;
+      const saleDate = saleData.saleDate || oldSale.sale_date;
+      const notes = saleData.notes !== undefined ? (saleData.notes?.trim() || null) : (oldSale.notes || null);
 
-      const updatedFields = {
-        product_id: saleData.productId,
-        customer_id: saleData.customerId,
-        quantity: saleData.quantity,
-        selling_price: saleData.sellingPrice,
-        total_amount: totalAmount,
-        payment_status: saleData.paymentStatus,
-        sale_date: saleData.saleDate,
+      const oldDue = oldSale.due_amount !== undefined ? Number(oldSale.due_amount) : (oldSale.payment_status === 'due' ? Number(oldSale.total_amount) : 0);
+
+      // Helper function to update React states for stock and customer balances
+      const syncLocalStateAfterUpdate = () => {
+        // 1. Stock State
+        if (oldSale.product_id === saleData.productId && oldProduct) {
+          const stockDiff = qty - oldSale.quantity;
+          setProducts((prev) =>
+            prev.map((p) => (p.id === oldProduct.id ? { ...p, stock_quantity: Math.max(0, p.stock_quantity - stockDiff) } : p))
+          );
+        } else {
+          setProducts((prev) =>
+            prev.map((p) => {
+              if (p.id === oldSale.product_id) return { ...p, stock_quantity: p.stock_quantity + oldSale.quantity };
+              if (p.id === saleData.productId) return { ...p, stock_quantity: Math.max(0, p.stock_quantity - qty) };
+              return p;
+            })
+          );
+        }
+
+        // 2. Customer State
+        setCustomers((prev) =>
+          prev.map((c) => {
+            if (c.id === oldSale.customer_id && oldSale.customer_id !== normalizedCustomerId) {
+              return {
+                ...c,
+                total_purchase: Math.max(0, Number(c.total_purchase || 0) - Number(oldSale.total_amount || 0)),
+                due_amount: Math.max(0, Number(c.due_amount || 0) - oldDue),
+              };
+            }
+            if (c.id === normalizedCustomerId) {
+              if (normalizedCustomerId === oldSale.customer_id) {
+                return {
+                  ...c,
+                  total_purchase: Math.max(0, Number(c.total_purchase || 0) - Number(oldSale.total_amount || 0) + totalAmount),
+                  due_amount: Math.max(0, Number(c.due_amount || 0) - oldDue + dueAmount),
+                };
+              } else {
+                return {
+                  ...c,
+                  total_purchase: Number(c.total_purchase || 0) + totalAmount,
+                  due_amount: Number(c.due_amount || 0) + dueAmount,
+                };
+              }
+            }
+            return c;
+          })
+        );
+
+        // 3. Sale State
+        const updatedSaleObj: Sale = {
+          ...oldSale,
+          product_id: saleData.productId,
+          customer_id: normalizedCustomerId,
+          quantity: qty,
+          selling_price: price,
+          subtotal,
+          discount,
+          total_amount: totalAmount,
+          paid_amount: paidAmount,
+          due_amount: dueAmount,
+          payment_status: paymentStatus,
+          sale_date: saleDate,
+          notes: notes || undefined,
+        };
+        setSales((prev) => prev.map((s) => (s.id === id ? updatedSaleObj : s)));
       };
 
-      const { data, error } = await supabase
+      // 1. Try atomic PostgreSQL RPC update
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('update_sale_transaction', {
+          p_sale_id: id,
+          p_product_id: saleData.productId,
+          p_customer_id: normalizedCustomerId,
+          p_quantity: qty,
+          p_selling_price: price,
+          p_subtotal: subtotal,
+          p_discount: discount,
+          p_total_amount: totalAmount,
+          p_paid_amount: paidAmount,
+          p_due_amount: dueAmount,
+          p_payment_status: paymentStatus,
+          p_sale_date: saleDate,
+          p_notes: notes,
+        });
+
+        if (!rpcError && rpcData?.success) {
+          syncLocalStateAfterUpdate();
+          return { error: null };
+        }
+      } catch {
+        // Fallback to sequential update
+      }
+
+      // 2. Safe Sequential Fallback
+      const updatedFields: Record<string, any> = {
+        product_id: saleData.productId,
+        customer_id: normalizedCustomerId,
+        quantity: qty,
+        selling_price: price,
+        subtotal,
+        discount,
+        total_amount: totalAmount,
+        paid_amount: paidAmount,
+        due_amount: dueAmount,
+        payment_status: paymentStatus,
+        sale_date: saleDate,
+        notes,
+      };
+
+      let { data, error } = await supabase
         .from('sales')
         .update(updatedFields)
         .eq('id', id)
         .select()
         .single();
 
+      if (error && (error.code === '42703' || error.message?.includes('subtotal') || error.message?.includes('discount') || error.message?.includes('paid_amount') || error.message?.includes('due_amount') || error.message?.includes('notes'))) {
+        const legacyUpdate = {
+          product_id: saleData.productId,
+          customer_id: normalizedCustomerId,
+          quantity: qty,
+          selling_price: price,
+          total_amount: totalAmount,
+          payment_status: paymentStatus,
+          sale_date: saleDate,
+        };
+        const retry = await supabase.from('sales').update(legacyUpdate).eq('id', id).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) return { error: error.message };
 
-      // 1. Adjust inventory stock
+      // Adjust inventory stock
       if (oldSale.product_id === saleData.productId && oldProduct) {
-        const stockDiff = saleData.quantity - oldSale.quantity;
+        const stockDiff = qty - oldSale.quantity;
         const newStock = Math.max(0, oldProduct.stock_quantity - stockDiff);
-        await updateProduct(oldProduct.id, { stock_quantity: newStock });
+        const stockRes = await updateProduct(oldProduct.id, { stock_quantity: newStock });
+        if (stockRes.error) return { error: `স্টক আপডেট ব্যর্থ: ${stockRes.error}` };
       } else {
         if (oldProduct) {
           await updateProduct(oldProduct.id, { stock_quantity: oldProduct.stock_quantity + oldSale.quantity });
         }
-        await updateProduct(newProduct.id, { stock_quantity: Math.max(0, newProduct.stock_quantity - saleData.quantity) });
+        const stockRes = await updateProduct(newProduct.id, { stock_quantity: Math.max(0, newProduct.stock_quantity - qty) });
+        if (stockRes.error) return { error: `স্টক আপডেট ব্যর্থ: ${stockRes.error}` };
       }
 
-      // 2. Adjust customer purchase and dues
+      // Adjust customer purchase and dues
       if (oldSale.customer_id) {
         const oldCust = customers.find((c) => c.id === oldSale.customer_id);
         if (oldCust) {
           const revertedTotal = Math.max(0, Number(oldCust.total_purchase || 0) - Number(oldSale.total_amount || 0));
-          const revertedDue = oldSale.payment_status === 'due'
-            ? Math.max(0, Number(oldCust.due_amount || 0) - Number(oldSale.total_amount || 0))
-            : Number(oldCust.due_amount || 0);
+          const revertedDue = Math.max(0, Number(oldCust.due_amount || 0) - oldDue);
 
-          if (saleData.customerId !== oldSale.customer_id) {
+          if (normalizedCustomerId !== oldSale.customer_id) {
             await updateCustomer(oldCust.id, { total_purchase: revertedTotal, due_amount: revertedDue });
           }
         }
       }
 
-      if (saleData.customerId) {
-        const targetCust = customers.find((c) => c.id === saleData.customerId);
+      if (normalizedCustomerId) {
+        const targetCust = customers.find((c) => c.id === normalizedCustomerId);
         if (targetCust) {
-          const isSameCust = saleData.customerId === oldSale.customer_id;
+          const isSameCust = normalizedCustomerId === oldSale.customer_id;
           const baseTotal = isSameCust
             ? Math.max(0, Number(targetCust.total_purchase || 0) - Number(oldSale.total_amount || 0))
             : Number(targetCust.total_purchase || 0);
 
-          const baseDue = isSameCust && oldSale.payment_status === 'due'
-            ? Math.max(0, Number(targetCust.due_amount || 0) - Number(oldSale.total_amount || 0))
+          const baseDue = isSameCust
+            ? Math.max(0, Number(targetCust.due_amount || 0) - oldDue)
             : Number(targetCust.due_amount || 0);
 
           const newTotalPurchase = baseTotal + totalAmount;
-          const newDue = saleData.paymentStatus === 'due' ? baseDue + totalAmount : baseDue;
+          const newDue = baseDue + dueAmount;
 
           await updateCustomer(targetCust.id, { total_purchase: newTotalPurchase, due_amount: newDue });
         }
       }
 
-      if (data) {
-        setSales((prev) => prev.map((s) => (s.id === id ? (data as Sale) : s)));
+      // Update sale_items if table exists
+      try {
+        await supabase.from('sale_items').delete().eq('sale_id', id);
+        await supabase.from('sale_items').insert({
+          sale_id: id,
+          user_id: user.id,
+          product_id: saleData.productId,
+          quantity: qty,
+          unit_price: price,
+          total_price: totalAmount,
+        });
+      } catch {
+        // safe fallback
       }
 
+      syncLocalStateAfterUpdate();
       return { error: null };
     } catch (err: unknown) {
       return { error: err instanceof Error ? err.message : 'Failed to update sale' };
@@ -603,26 +1033,75 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       const sale = sales.find((s) => s.id === id);
+      if (!sale) return { error: 'Sale record not found' };
 
+      const saleDue = sale.due_amount !== undefined ? Number(sale.due_amount) : (sale.payment_status === 'due' ? Number(sale.total_amount) : 0);
+
+      const syncLocalStateAfterDelete = () => {
+        // Restore stock in local state
+        if (sale.product_id) {
+          setProducts((prev) =>
+            prev.map((p) => (p.id === sale.product_id ? { ...p, stock_quantity: p.stock_quantity + sale.quantity } : p))
+          );
+        }
+        // Restore customer in local state
+        if (sale.customer_id) {
+          setCustomers((prev) =>
+            prev.map((c) =>
+              c.id === sale.customer_id
+                ? {
+                    ...c,
+                    total_purchase: Math.max(0, Number(c.total_purchase || 0) - Number(sale.total_amount || 0)),
+                    due_amount: Math.max(0, Number(c.due_amount || 0) - saleDue),
+                  }
+                : c
+            )
+          );
+        }
+        // Remove sale from local state
+        setSales((prev) => prev.filter((s) => s.id !== id));
+      };
+
+      // 1. Try atomic PostgreSQL RPC delete
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('delete_sale_transaction', {
+          p_sale_id: id,
+        });
+
+        if (!rpcError && rpcData?.success) {
+          syncLocalStateAfterDelete();
+          return { error: null };
+        }
+      } catch {
+        // Fallback to sequential deletion
+      }
+
+      // 2. Safe Sequential Fallback
+      // Delete associated sale_items first
+      try {
+        await supabase.from('sale_items').delete().eq('sale_id', id);
+      } catch {
+        // safe fallback
+      }
+
+      // Delete the sale record from Supabase
       const { error } = await supabase.from('sales').delete().eq('id', id);
       if (error) return { error: error.message };
 
-      // Restore product inventory!
-      if (sale && sale.product_id) {
+      // Restore product inventory stock
+      if (sale.product_id) {
         const prod = products.find((p) => p.id === sale.product_id);
         if (prod) {
           await updateProduct(prod.id, { stock_quantity: prod.stock_quantity + sale.quantity });
         }
       }
 
-      // Restore customer due and total_purchase!
-      if (sale && sale.customer_id) {
+      // Restore customer due and total_purchase
+      if (sale.customer_id) {
         const cust = customers.find((c) => c.id === sale.customer_id);
         if (cust) {
           const newTotalPurchase = Math.max(0, Number(cust.total_purchase || 0) - Number(sale.total_amount || 0));
-          const newDue = sale.payment_status === 'due'
-            ? Math.max(0, Number(cust.due_amount || 0) - Number(sale.total_amount || 0))
-            : Number(cust.due_amount || 0);
+          const newDue = Math.max(0, Number(cust.due_amount || 0) - saleDue);
 
           await updateCustomer(cust.id, {
             total_purchase: newTotalPurchase,
@@ -631,7 +1110,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      setSales((prev) => prev.filter((s) => s.id !== id));
+      syncLocalStateAfterDelete();
       return { error: null };
     } catch (err: unknown) {
       return { error: err instanceof Error ? err.message : 'Failed to delete sale' };
@@ -1148,7 +1627,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // ==================== Comprehensive Metrics ====================
   const lowStockProducts = useMemo(() => {
-    return products.filter((p) => p.stock_quantity <= p.low_stock_level);
+    return products.filter((p) => p.stock_quantity <= (p.low_stock_threshold ?? p.low_stock_level ?? 5));
   }, [products]);
 
   const metrics = useMemo<DashboardMetrics>(() => {
@@ -1226,6 +1705,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         metrics,
         lowStockProducts,
         refreshData,
+        isProductsTableMissing,
         // Part 2 state
         suppliers,
         purchases,
