@@ -5,6 +5,7 @@ export type ExpenseCategory =
   | 'Marketing'
   | 'Electricity'
   | 'Internet'
+  | 'Utilities'
   | 'Other';
 
 export type UserPlan = 'FREE' | 'PRO';
@@ -60,10 +61,21 @@ export interface Customer {
   phone: string;
   email: string;
   address: string;
+  notes?: string;
   total_purchase: number;
   due_amount: number;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface CustomerInput {
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  notes?: string;
+  total_purchase?: number;
+  due_amount?: number;
 }
 
 export interface SaleItem {
@@ -118,11 +130,23 @@ export interface SaleInput {
 export interface Expense {
   id: string;
   user_id: string;
-  category: ExpenseCategory;
+  title: string;
+  category: ExpenseCategory | string;
   amount: number;
+  expense_date: string;
+  date: string; // Compatibility alias with expense_date
   description: string;
-  date: string;
   created_at?: string;
+  updated_at?: string;
+}
+
+export interface ExpenseInput {
+  title?: string;
+  category: ExpenseCategory | string;
+  amount: number;
+  expense_date?: string;
+  date?: string;
+  description?: string;
 }
 
 // PART 2 PRO MODELS
@@ -223,6 +247,7 @@ export interface CustomerPayment {
   customer_id: string;
   amount: number;
   payment_date: string;
+  date?: string;
   payment_method: string;
   notes?: string;
   created_at?: string;

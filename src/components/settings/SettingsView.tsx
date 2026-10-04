@@ -176,11 +176,14 @@ create table if not exists public.customers (
   phone text,
   email text,
   address text,
+  notes text,
   total_purchase numeric not null default 0,
   due_amount numeric not null default 0,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+alter table public.customers add column if not exists notes text;
 
 -- 4. Sales Table (Part 1 Step 4: Sales Management)
 create table if not exists public.sales (
@@ -220,16 +223,24 @@ create table if not exists public.sale_items (
   created_at timestamptz default now()
 );
 
--- 5. Expenses Table
+-- 5. Expenses Table (Part 1 Step 5: Expense Management)
 create table if not exists public.expenses (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users on delete cascade not null,
+  title text,
   category text not null,
   amount numeric not null default 0,
+  expense_date date not null default current_date,
+  date date default current_date,
   description text,
-  date date not null default current_date,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
+
+alter table public.expenses add column if not exists title text;
+alter table public.expenses add column if not exists expense_date date default current_date;
+alter table public.expenses add column if not exists date date default current_date;
+alter table public.expenses add column if not exists updated_at timestamptz default now();
 
 -- ==========================================
 -- PART 2 (PRO) TABLES
@@ -599,6 +610,87 @@ $$;
 grant execute on function public.record_sale_transaction to authenticated;
 grant execute on function public.update_sale_transaction to authenticated;
 grant execute on function public.delete_sale_transaction to authenticated;
+
+create or replace function public.record_customer_payment_transaction(
+  p_customer_id uuid,
+  p_amount numeric,
+  p_payment_date date,
+  p_payment_method text default 'CASH',
+  p_notes text default null
+) returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_new_payment_id uuid;
+  v_customer record;
+  v_new_due numeric;
+begin
+  if v_user_id is null then raise exception 'Not authenticated'; end if;
+  if p_amount <= 0 then raise exception 'Payment amount must be greater than zero'; end if;
+
+  select * into v_customer from public.customers where id = p_customer_id and user_id = v_user_id for update;
+  if not found then raise exception 'Customer not found'; end if;
+
+  if p_amount > coalesce(v_customer.due_amount, 0) then
+    raise exception 'Payment amount (%) cannot exceed outstanding due balance (%)', p_amount, coalesce(v_customer.due_amount, 0);
+  end if;
+
+  v_new_due := greatest(0, coalesce(v_customer.due_amount, 0) - p_amount);
+
+  insert into public.customer_payments (user_id, customer_id, amount, payment_date, date, payment_method, notes)
+  values (v_user_id, p_customer_id, p_amount, p_payment_date, p_payment_date, p_payment_method, p_notes)
+  returning id into v_new_payment_id;
+
+  update public.customers
+  set due_amount = v_new_due, updated_at = now()
+  where id = p_customer_id and user_id = v_user_id;
+
+  return jsonb_build_object(
+    'success', true,
+    'payment_id', v_new_payment_id,
+    'new_due', v_new_due
+  );
+end;
+$$;
+
+grant execute on function public.record_customer_payment_transaction to authenticated;
+
+create or replace function public.delete_customer_payment_transaction(
+  p_payment_id uuid
+) returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_payment record;
+  v_new_due numeric;
+begin
+  if v_user_id is null then raise exception 'Not authenticated'; end if;
+
+  select * into v_payment from public.customer_payments where id = p_payment_id and user_id = v_user_id for update;
+  if not found then raise exception 'Payment record not found'; end if;
+
+  update public.customers
+  set due_amount = coalesce(due_amount, 0) + v_payment.amount,
+      updated_at = now()
+  where id = v_payment.customer_id and user_id = v_user_id
+  returning due_amount into v_new_due;
+
+  delete from public.customer_payments where id = p_payment_id and user_id = v_user_id;
+
+  return jsonb_build_object(
+    'success', true,
+    'payment_id', p_payment_id,
+    'customer_id', v_payment.customer_id,
+    'new_due', coalesce(v_new_due, 0)
+  );
+end;
+$$;
+
+grant execute on function public.delete_customer_payment_transaction to authenticated;
 `;
 
   const proMigrationOnlySql = `-- ==========================================

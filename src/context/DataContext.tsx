@@ -5,9 +5,11 @@ import {
   Product,
   ProductInput,
   Customer,
+  CustomerInput,
   Sale,
   SaleInput,
   Expense,
+  ExpenseInput,
   Supplier,
   Purchase,
   StockAdjustment,
@@ -48,9 +50,10 @@ interface DataContextType {
   deleteProduct: (id: string) => Promise<{ error: string | null }>;
 
   // Customer actions
-  addCustomer: (customer: Omit<Customer, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => Promise<{ data?: Customer; error: string | null }>;
-  updateCustomer: (id: string, customer: Partial<Customer>) => Promise<{ error: string | null }>;
+  addCustomer: (customer: CustomerInput | Omit<Customer, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => Promise<{ data?: Customer; error: string | null }>;
+  updateCustomer: (id: string, customer: Partial<CustomerInput | Customer>) => Promise<{ error: string | null }>;
   deleteCustomer: (id: string) => Promise<{ error: string | null }>;
+  recalculateCustomerDue: (customerId: string) => Promise<{ error: string | null }>;
 
   // Sale actions (Part 1 Step 4)
   recordSale: (saleData: SaleInput) => Promise<{ error: string | null }>;
@@ -58,8 +61,8 @@ interface DataContextType {
   deleteSale: (id: string) => Promise<{ error: string | null }>;
 
   // Expense actions
-  addExpense: (expense: Omit<Expense, 'id' | 'user_id' | 'created_at'>) => Promise<{ error: string | null }>;
-  updateExpense: (id: string, expense: Partial<Expense>) => Promise<{ error: string | null }>;
+  addExpense: (expense: ExpenseInput | Omit<Expense, 'id' | 'user_id' | 'created_at'>) => Promise<{ error: string | null }>;
+  updateExpense: (id: string, expense: Partial<ExpenseInput | Expense>) => Promise<{ error: string | null }>;
   deleteExpense: (id: string) => Promise<{ error: string | null }>;
 
   // Part 2 Supplier actions
@@ -102,6 +105,7 @@ interface DataContextType {
     paymentMethod: string;
     notes?: string;
   }) => Promise<{ error: string | null }>;
+  deleteCustomerPayment: (id: string) => Promise<{ error: string | null }>;
 
   recordSupplierPayment: (paymentData: {
     supplierId: string;
@@ -228,7 +232,52 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         setSales(mappedSales);
       }
-      if (expsRes.data) setExpenses(expsRes.data as Expense[]);
+      if (expsRes.data) {
+        const mappedExpenses: Expense[] = expsRes.data.map((e: any) => {
+          const cat = e.category || 'Other';
+          const expDate = e.expense_date || e.date || e.created_at?.split('T')[0] || new Date().toISOString().split('T')[0];
+          return {
+            id: e.id,
+            user_id: e.user_id,
+            title: e.title || cat,
+            category: cat,
+            amount: Number(e.amount) || 0,
+            expense_date: expDate,
+            date: expDate,
+            description: e.description || '',
+            created_at: e.created_at,
+            updated_at: e.updated_at,
+          };
+        });
+        setExpenses(mappedExpenses);
+      }
+
+      // Customer Payments (Part 1 Step 5: Customer Due Management)
+      try {
+        let custPayRes = await supabase.from('customer_payments').select('*').order('created_at', { ascending: false });
+        if (custPayRes.error) {
+          custPayRes = await supabase.from('customer_payments').select('*');
+        }
+        if (custPayRes.data) {
+          const mappedPayments: CustomerPayment[] = custPayRes.data.map((p: any) => {
+            const payDate = p.payment_date || p.date || p.created_at?.split('T')[0] || new Date().toISOString().split('T')[0];
+            return {
+              id: p.id,
+              user_id: p.user_id,
+              customer_id: p.customer_id,
+              amount: Number(p.amount) || 0,
+              payment_date: payDate,
+              date: payDate,
+              payment_method: p.payment_method || 'CASH',
+              notes: p.notes || '',
+              created_at: p.created_at,
+            };
+          });
+          setCustomerPayments(mappedPayments);
+        }
+      } catch {
+        // Table not yet migrated
+      }
 
       // 2. Part 2 tables (safely queried so missing tables don't block)
       try {
@@ -530,28 +579,46 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ==================== Customer Operations ====================
-  const addCustomer = async (customerData: Omit<Customer, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
+  // ==================== Customer Operations (Part 1 Step 5) ====================
+  const addCustomer = async (customerData: CustomerInput | Omit<Customer, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
     const supabase = getSupabaseClient();
     if (!supabase || !user) return { error: 'Not authenticated' };
 
     try {
-      const newCustomer = {
-        ...customerData,
+      const newCustomer: Record<string, any> = {
+        name: customerData.name.trim(),
+        phone: customerData.phone?.trim() || '',
+        email: customerData.email?.trim() || '',
+        address: customerData.address?.trim() || '',
+        notes: customerData.notes?.trim() || '',
+        total_purchase: Number(customerData.total_purchase) || 0,
+        due_amount: Number(customerData.due_amount) || 0,
         user_id: user.id,
       };
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('customers')
         .insert(newCustomer)
         .select()
         .single();
 
+      // Graceful fallback if table doesn't have notes column yet
+      if (error && (error.code === '42703' || error.message?.includes('notes'))) {
+        delete newCustomer.notes;
+        const retry = await supabase.from('customers').insert(newCustomer).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) return { error: error.message };
 
       if (data) {
-        setCustomers((prev) => [data as Customer, ...prev]);
-        return { data: data as Customer, error: null };
+        const normalized: Customer = {
+          ...(data as any),
+          notes: (customerData as any).notes || '',
+        };
+        setCustomers((prev) => [normalized, ...prev]);
+        return { data: normalized, error: null };
       }
       return { error: null };
     } catch (err: unknown) {
@@ -559,27 +626,41 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateCustomer = async (id: string, customerData: Partial<Customer>) => {
+  const updateCustomer = async (id: string, customerData: Partial<CustomerInput | Customer>) => {
     const supabase = getSupabaseClient();
     if (!supabase || !user) return { error: 'Not authenticated' };
 
     try {
-      const updated = {
-        ...customerData,
+      const updated: Record<string, any> = {
         updated_at: new Date().toISOString(),
       };
+      if (customerData.name !== undefined) updated.name = customerData.name.trim();
+      if (customerData.phone !== undefined) updated.phone = customerData.phone.trim();
+      if (customerData.email !== undefined) updated.email = customerData.email.trim();
+      if (customerData.address !== undefined) updated.address = customerData.address.trim();
+      if (customerData.notes !== undefined) updated.notes = customerData.notes.trim();
+      if (customerData.total_purchase !== undefined) updated.total_purchase = Number(customerData.total_purchase);
+      if (customerData.due_amount !== undefined) updated.due_amount = Math.max(0, Number(customerData.due_amount));
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('customers')
         .update(updated)
         .eq('id', id)
         .select()
         .single();
 
+      // Fallback if notes column doesn't exist
+      if (error && (error.code === '42703' || error.message?.includes('notes'))) {
+        delete updated.notes;
+        const retry = await supabase.from('customers').update(updated).eq('id', id).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) return { error: error.message };
 
       if (data) {
-        setCustomers((prev) => prev.map((c) => (c.id === id ? (data as Customer) : c)));
+        setCustomers((prev) => prev.map((c) => (c.id === id ? { ...(c), ...(data as any), notes: customerData.notes !== undefined ? customerData.notes : c.notes } : c)));
       }
       return { error: null };
     } catch (err: unknown) {
@@ -592,6 +673,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!supabase || !user) return { error: 'Not authenticated' };
 
     try {
+      // Step 5 Requirement: Prevent accidental deletion of customers with linked sales or dues
+      const linkedSales = sales.filter((s) => s.customer_id === id);
+      if (linkedSales.length > 0) {
+        return {
+          error: `এই গ্রাহকের সাথে ${linkedSales.length}টি বিক্রয় রেকর্ড যুক্ত রয়েছে। বিক্রয় বিদ্যমান থাকা অবস্থায় গ্রাহক মুছে ফেলা সম্ভব নয়। (Cannot delete customer with linked sales)`,
+        };
+      }
+
+      const linkedPayments = customerPayments.filter((p) => p.customer_id === id);
+      if (linkedPayments.length > 0) {
+        return {
+          error: `এই গ্রাহকের সাথে ${linkedPayments.length}টি বকেয়া আদায়ের রেকর্ড যুক্ত রয়েছে। গ্রাহক ডিলিট করার আগে আদায়ের রেকর্ডগুলো পর্যালোচনা করুন।`,
+        };
+      }
+
+      const custObj = customers.find((c) => c.id === id);
+      if (custObj && Number(custObj.due_amount || 0) > 0) {
+        return {
+          error: `এই গ্রাহকের কাছে এখনও ৳ ${custObj.due_amount} বকেয়া পাওনা রয়েছে। বকেয়া পরিশোধ না করে গ্রাহক মুছে ফেলা সম্ভব নয়।`,
+        };
+      }
+
       const { error } = await supabase.from('customers').delete().eq('id', id);
       if (error) return { error: error.message };
 
@@ -600,6 +703,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err: unknown) {
       return { error: err instanceof Error ? err.message : 'Failed to delete customer' };
     }
+  };
+
+  const recalculateCustomerDue = async (customerId: string) => {
+    const cust = customers.find((c) => c.id === customerId);
+    if (!cust) return { error: 'গ্রাহক পাওয়া যায়নি (Customer not found)' };
+
+    // Calculate actual total due from real sales
+    const salesDue = sales
+      .filter((s) => s.customer_id === customerId)
+      .reduce((acc, s) => {
+        const dueVal = s.due_amount !== undefined
+          ? Number(s.due_amount)
+          : (s.payment_status === 'due' ? Number(s.total_amount) : 0);
+        return acc + dueVal;
+      }, 0);
+
+    // Calculate actual total payments recorded
+    const paymentsTotal = customerPayments
+      .filter((p) => p.customer_id === customerId)
+      .reduce((acc, p) => acc + Number(p.amount || 0), 0);
+
+    const calculatedDue = Math.max(0, salesDue - paymentsTotal);
+    return await updateCustomer(customerId, { due_amount: calculatedDue });
   };
 
   // ==================== Sale Operations (Part 1 Step 4) ====================
@@ -1117,27 +1243,63 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ==================== Expense Operations ====================
-  const addExpense = async (expenseData: Omit<Expense, 'id' | 'user_id' | 'created_at'>) => {
+  // ==================== Expense Operations (Part 1 Step 5) ====================
+  const addExpense = async (expenseData: ExpenseInput | Omit<Expense, 'id' | 'user_id' | 'created_at'>) => {
     const supabase = getSupabaseClient();
     if (!supabase || !user) return { error: 'Not authenticated' };
 
     try {
-      const newExpense = {
-        ...expenseData,
+      const expDate = expenseData.expense_date || (expenseData as any).date || new Date().toISOString().split('T')[0];
+      const title = expenseData.title?.trim() || expenseData.category || 'Expense';
+      const amount = Number(expenseData.amount) || 0;
+      const description = expenseData.description?.trim() || '';
+
+      const newExpenseRecord: Record<string, any> = {
         user_id: user.id,
+        title,
+        category: expenseData.category,
+        amount,
+        expense_date: expDate,
+        date: expDate,
+        description,
       };
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('expenses')
-        .insert(newExpense)
+        .insert(newExpenseRecord)
         .select()
         .single();
+
+      // Graceful fallback if table doesn't have title or expense_date columns yet
+      if (error && (error.code === '42703' || error.message?.includes('title') || error.message?.includes('expense_date'))) {
+        const legacyPayload = {
+          user_id: user.id,
+          category: expenseData.category,
+          amount,
+          date: expDate,
+          description,
+        };
+        const retry = await supabase.from('expenses').insert(legacyPayload).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
 
       if (error) return { error: error.message };
 
       if (data) {
-        setExpenses((prev) => [data as Expense, ...prev]);
+        const normalized: Expense = {
+          id: data.id,
+          user_id: data.user_id,
+          title: data.title || title,
+          category: data.category,
+          amount: Number(data.amount) || amount,
+          expense_date: data.expense_date || data.date || expDate,
+          date: data.date || data.expense_date || expDate,
+          description: data.description || description,
+          created_at: data.created_at,
+          updated_at: data.updated_at,
+        };
+        setExpenses((prev) => [normalized, ...prev]);
       }
       return { error: null };
     } catch (err: unknown) {
@@ -1145,22 +1307,56 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateExpense = async (id: string, expenseData: Partial<Expense>) => {
+  const updateExpense = async (id: string, expenseData: Partial<ExpenseInput | Expense>) => {
     const supabase = getSupabaseClient();
     if (!supabase || !user) return { error: 'Not authenticated' };
 
     try {
-      const { data, error } = await supabase
+      const expDate = expenseData.expense_date || expenseData.date;
+      const updated: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (expenseData.title !== undefined) updated.title = expenseData.title.trim();
+      if (expenseData.category !== undefined) updated.category = expenseData.category;
+      if (expenseData.amount !== undefined) updated.amount = Number(expenseData.amount);
+      if (expDate !== undefined) {
+        updated.expense_date = expDate;
+        updated.date = expDate;
+      }
+      if (expenseData.description !== undefined) updated.description = expenseData.description.trim();
+
+      let { data, error } = await supabase
         .from('expenses')
-        .update(expenseData)
+        .update(updated)
         .eq('id', id)
         .select()
         .single();
 
+      // Graceful fallback if table doesn't have title or expense_date columns
+      if (error && (error.code === '42703' || error.message?.includes('title') || error.message?.includes('expense_date'))) {
+        delete updated.title;
+        delete updated.expense_date;
+        const retry = await supabase.from('expenses').update(updated).eq('id', id).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) return { error: error.message };
 
       if (data) {
-        setExpenses((prev) => prev.map((e) => (e.id === id ? (data as Expense) : e)));
+        const normalized: Expense = {
+          id: data.id,
+          user_id: data.user_id,
+          title: data.title || expenseData.title || data.category,
+          category: data.category,
+          amount: Number(data.amount) || Number(expenseData.amount),
+          expense_date: data.expense_date || data.date || expDate || new Date().toISOString().split('T')[0],
+          date: data.date || data.expense_date || expDate || new Date().toISOString().split('T')[0],
+          description: data.description !== undefined ? data.description : (expenseData.description || ''),
+          created_at: data.created_at,
+          updated_at: data.updated_at,
+        };
+        setExpenses((prev) => prev.map((e) => (e.id === id ? normalized : e)));
       }
       return { error: null };
     } catch (err: unknown) {
@@ -1474,7 +1670,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // ==================== PART 2: Due & Payable Payments ====================
+  // ==================== Customer Due & Payment Operations (Part 1 Step 5) ====================
   const recordCustomerPayment = async (paymentData: {
     customerId: string;
     amount: number;
@@ -1487,36 +1683,151 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       const cust = customers.find((c) => c.id === paymentData.customerId);
-      if (!cust) return { error: 'Customer not found' };
+      if (!cust) return { error: 'গ্রাহক পাওয়া যায়নি (Customer not found)' };
 
+      const payAmount = Number(paymentData.amount);
+      if (!payAmount || payAmount <= 0) {
+        return { error: 'পরিশোধের পরিমাণ অবশ্যই ০-এর বেশি হতে হবে (Payment amount must be greater than zero)' };
+      }
+
+      const currentDue = Number(cust.due_amount || 0);
+      if (payAmount > currentDue) {
+        return {
+          error: `পরিশোধের পরিমাণ (৳ ${payAmount}) বর্তমান বকেয়া পাওনা (৳ ${currentDue})-এর চেয়ে বেশি হতে পারবে না। (Cannot exceed outstanding due)`,
+        };
+      }
+
+      const payDate = paymentData.paymentDate || new Date().toISOString().split('T')[0];
+      const method = paymentData.paymentMethod || 'CASH';
+      const notes = paymentData.notes?.trim() || '';
+
+      // 1. Try atomic PostgreSQL RPC transaction first
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('record_customer_payment_transaction', {
+          p_customer_id: paymentData.customerId,
+          p_amount: payAmount,
+          p_payment_date: payDate,
+          p_payment_method: method,
+          p_notes: notes || null,
+        });
+
+        if (!rpcError && rpcData?.success) {
+          const newPaymentObj: CustomerPayment = {
+            id: rpcData.payment_id,
+            user_id: user.id,
+            customer_id: paymentData.customerId,
+            amount: payAmount,
+            payment_date: payDate,
+            date: payDate,
+            payment_method: method,
+            notes,
+            created_at: new Date().toISOString(),
+          };
+          setCustomerPayments((prev) => [newPaymentObj, ...prev]);
+          setCustomers((prev) =>
+            prev.map((c) => (c.id === paymentData.customerId ? { ...c, due_amount: Number(rpcData.new_due) } : c))
+          );
+          return { error: null };
+        }
+      } catch {
+        // Fallback to sequential
+      }
+
+      // 2. Safe Sequential Fallback
       const newPayment = {
         user_id: user.id,
         customer_id: paymentData.customerId,
-        amount: paymentData.amount,
-        payment_date: paymentData.paymentDate,
-        payment_method: paymentData.paymentMethod,
-        notes: paymentData.notes || '',
+        amount: payAmount,
+        payment_date: payDate,
+        date: payDate,
+        payment_method: method,
+        notes,
       };
 
+      let insertedId = `local-cpay-${Date.now()}`;
       try {
-        const { data } = await supabase.from('customer_payments').insert(newPayment).select().single();
-        if (data) setCustomerPayments((prev) => [data as CustomerPayment, ...prev]);
+        const { data, error } = await supabase.from('customer_payments').insert(newPayment).select().single();
+        if (!error && data) {
+          insertedId = data.id;
+        } else if (error && (error.message?.includes('payment_date') || error.code === '42703')) {
+          const fallbackPayment = {
+            user_id: user.id,
+            customer_id: paymentData.customerId,
+            amount: payAmount,
+            date: payDate,
+            payment_method: method,
+            notes,
+          };
+          const retry = await supabase.from('customer_payments').insert(fallbackPayment).select().single();
+          if (retry.data) insertedId = retry.data.id;
+        }
       } catch {
-        const localPay: CustomerPayment = {
-          id: `local-cpay-${Date.now()}`,
-          ...newPayment,
-          created_at: new Date().toISOString(),
-        };
-        setCustomerPayments((prev) => [localPay, ...prev]);
+        // Safe local fallback
       }
 
-      // Deduct from customer due amount
-      const updatedDue = Math.max(0, Number(cust.due_amount || 0) - paymentData.amount);
-      await updateCustomer(cust.id, { due_amount: updatedDue });
+      const newDue = Math.max(0, currentDue - payAmount);
+      await updateCustomer(cust.id, { due_amount: newDue });
+
+      const newPaymentObj: CustomerPayment = {
+        id: insertedId,
+        user_id: user.id,
+        customer_id: paymentData.customerId,
+        amount: payAmount,
+        payment_date: payDate,
+        date: payDate,
+        payment_method: method,
+        notes,
+        created_at: new Date().toISOString(),
+      };
+      setCustomerPayments((prev) => [newPaymentObj, ...prev]);
 
       return { error: null };
     } catch (err: unknown) {
       return { error: err instanceof Error ? err.message : 'Failed to record customer payment' };
+    }
+  };
+
+  const deleteCustomerPayment = async (id: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { error: 'Not authenticated' };
+
+    try {
+      const payment = customerPayments.find((p) => p.id === id);
+      if (!payment) return { error: 'পেমেন্ট রেকর্ড পাওয়া যায়নি' };
+
+      // 1. Try atomic PostgreSQL RPC first
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('delete_customer_payment_transaction', {
+          p_payment_id: id,
+        });
+
+        if (!rpcError && rpcData?.success) {
+          setCustomerPayments((prev) => prev.filter((p) => p.id !== id));
+          if (rpcData.customer_id && rpcData.new_due !== undefined) {
+            setCustomers((prev) =>
+              prev.map((c) => (c.id === rpcData.customer_id ? { ...c, due_amount: Number(rpcData.new_due) } : c))
+            );
+          }
+          return { error: null };
+        }
+      } catch {
+        // Fallback to sequential
+      }
+
+      // 2. Sequential fallback
+      const { error: delError } = await supabase.from('customer_payments').delete().eq('id', id);
+      if (delError) return { error: delError.message };
+
+      const targetCustomer = customers.find((c) => c.id === payment.customer_id);
+      if (targetCustomer) {
+        const restoredDue = Number(targetCustomer.due_amount || 0) + Number(payment.amount || 0);
+        await updateCustomer(targetCustomer.id, { due_amount: restoredDue });
+      }
+
+      setCustomerPayments((prev) => prev.filter((p) => p.id !== id));
+      return { error: null };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : 'Failed to delete payment' };
     }
   };
 
@@ -1722,6 +2033,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addCustomer,
         updateCustomer,
         deleteCustomer,
+        recalculateCustomerDue,
         recordSale,
         updateSale,
         deleteSale,
@@ -1740,6 +2052,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateInvoiceStatus,
         deleteInvoice,
         recordCustomerPayment,
+        deleteCustomerPayment,
         recordSupplierPayment,
         submitPaymentRequest,
         updateBusinessSettings,

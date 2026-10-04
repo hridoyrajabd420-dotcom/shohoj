@@ -72,6 +72,9 @@ create table if not exists public.customers (
   updated_at timestamptz default now()
 );
 
+-- Safe migrations: Ensure all Step 5 customer columns exist
+alter table public.customers add column if not exists notes text;
+
 -- 4. Sales Table (Part 1 Step 4: Sales Management)
 create table if not exists public.sales (
   id uuid default gen_random_uuid() primary key,
@@ -110,16 +113,41 @@ create table if not exists public.sale_items (
   created_at timestamptz default now()
 );
 
--- 6. Expenses Table
+-- 6. Expenses Table (Part 1 Step 5: Expense Management)
 create table if not exists public.expenses (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users(id) on delete cascade not null,
+  title text,
   category text not null,
   amount numeric not null default 0,
+  expense_date date not null default current_date,
+  date date default current_date,
   description text,
-  date date not null default current_date,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Safe migrations: Ensure all Step 5 expense columns exist if table was already created
+alter table public.expenses add column if not exists title text;
+alter table public.expenses add column if not exists expense_date date default current_date;
+alter table public.expenses add column if not exists date date default current_date;
+alter table public.expenses add column if not exists updated_at timestamptz default now();
+
+-- 7. Customer Payments Table (Part 1 Step 5: Customer Due Management)
+create table if not exists public.customer_payments (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users(id) on delete cascade not null,
+  customer_id uuid references public.customers(id) on delete cascade not null,
+  amount numeric not null default 0,
+  payment_method text not null default 'CASH',
+  payment_date date not null default current_date,
+  date date default current_date,
+  notes text,
   created_at timestamptz default now()
 );
+
+alter table public.customer_payments add column if not exists payment_date date default current_date;
+alter table public.customer_payments add column if not exists date date default current_date;
 
 -- ==============================================================================
 -- ROW LEVEL SECURITY (RLS) - Absolute Isolation: auth.uid() = user_id
@@ -131,6 +159,7 @@ alter table public.customers enable row level security;
 alter table public.sales enable row level security;
 alter table public.sale_items enable row level security;
 alter table public.expenses enable row level security;
+alter table public.customer_payments enable row level security;
 
 -- ------------------------------------------------------------------------------
 -- Profiles Policies
@@ -270,6 +299,29 @@ create policy "Users can delete own expenses"
   on public.expenses for delete
   using (auth.uid() = user_id);
 
+-- ------------------------------------------------------------------------------
+-- Customer Payments Policies (Part 1 Step 5)
+-- ------------------------------------------------------------------------------
+drop policy if exists "Users can view own customer_payments" on public.customer_payments;
+create policy "Users can view own customer_payments"
+  on public.customer_payments for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert own customer_payments" on public.customer_payments;
+create policy "Users can insert own customer_payments"
+  on public.customer_payments for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update own customer_payments" on public.customer_payments;
+create policy "Users can update own customer_payments"
+  on public.customer_payments for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own customer_payments" on public.customer_payments;
+create policy "Users can delete own customer_payments"
+  on public.customer_payments for delete
+  using (auth.uid() = user_id);
+
 -- ==============================================================================
 -- INDEXES - Optimal Performance for Queries & Relationships
 -- ==============================================================================
@@ -297,7 +349,13 @@ create index if not exists idx_sale_items_product_id on public.sale_items(produc
 -- Expenses
 create index if not exists idx_expenses_user_id on public.expenses(user_id);
 create index if not exists idx_expenses_date on public.expenses(date desc);
+create index if not exists idx_expenses_expense_date on public.expenses(expense_date desc);
 create index if not exists idx_expenses_created_at on public.expenses(created_at desc);
+
+-- Customer Payments
+create index if not exists idx_customer_payments_user_id on public.customer_payments(user_id);
+create index if not exists idx_customer_payments_customer_id on public.customer_payments(customer_id);
+create index if not exists idx_customer_payments_date on public.customer_payments(payment_date desc);
 
 -- ==============================================================================
 -- AUTH TRIGGER - Automatic Profile Row on Sign-up
@@ -659,3 +717,93 @@ $$;
 grant execute on function public.record_sale_transaction to authenticated;
 grant execute on function public.update_sale_transaction to authenticated;
 grant execute on function public.delete_sale_transaction to authenticated;
+
+-- ------------------------------------------------------------------------------
+-- Atomic Function: record_customer_payment_transaction (Part 1 Step 5)
+-- Records customer due payment and updates customer due_amount atomically
+-- ------------------------------------------------------------------------------
+create or replace function public.record_customer_payment_transaction(
+  p_customer_id uuid,
+  p_amount numeric,
+  p_payment_date date,
+  p_payment_method text default 'CASH',
+  p_notes text default null
+) returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_new_payment_id uuid;
+  v_customer record;
+  v_new_due numeric;
+begin
+  if v_user_id is null then raise exception 'Not authenticated'; end if;
+  if p_amount <= 0 then raise exception 'Payment amount must be greater than zero'; end if;
+
+  select * into v_customer from public.customers where id = p_customer_id and user_id = v_user_id for update;
+  if not found then raise exception 'Customer not found'; end if;
+
+  if p_amount > coalesce(v_customer.due_amount, 0) then
+    raise exception 'Payment amount (%) cannot exceed outstanding due balance (%)', p_amount, coalesce(v_customer.due_amount, 0);
+  end if;
+
+  v_new_due := greatest(0, coalesce(v_customer.due_amount, 0) - p_amount);
+
+  insert into public.customer_payments (user_id, customer_id, amount, payment_date, date, payment_method, notes)
+  values (v_user_id, p_customer_id, p_amount, p_payment_date, p_payment_date, p_payment_method, p_notes)
+  returning id into v_new_payment_id;
+
+  update public.customers
+  set due_amount = v_new_due, updated_at = now()
+  where id = p_customer_id and user_id = v_user_id;
+
+  return jsonb_build_object(
+    'success', true,
+    'payment_id', v_new_payment_id,
+    'new_due', v_new_due
+  );
+end;
+$$;
+
+grant execute on function public.record_customer_payment_transaction to authenticated;
+
+-- ------------------------------------------------------------------------------
+-- Atomic Function: delete_customer_payment_transaction (Part 1 Step 5)
+-- Deletes customer due payment and restores customer due_amount atomically
+-- ------------------------------------------------------------------------------
+create or replace function public.delete_customer_payment_transaction(
+  p_payment_id uuid
+) returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_payment record;
+  v_new_due numeric;
+begin
+  if v_user_id is null then raise exception 'Not authenticated'; end if;
+
+  select * into v_payment from public.customer_payments where id = p_payment_id and user_id = v_user_id for update;
+  if not found then raise exception 'Payment record not found'; end if;
+
+  -- Restore customer due balance
+  update public.customers
+  set due_amount = coalesce(due_amount, 0) + v_payment.amount,
+      updated_at = now()
+  where id = v_payment.customer_id and user_id = v_user_id
+  returning due_amount into v_new_due;
+
+  delete from public.customer_payments where id = p_payment_id and user_id = v_user_id;
+
+  return jsonb_build_object(
+    'success', true,
+    'payment_id', p_payment_id,
+    'customer_id', v_payment.customer_id,
+    'new_due', coalesce(v_new_due, 0)
+  );
+end;
+$$;
+
+grant execute on function public.delete_customer_payment_transaction to authenticated;

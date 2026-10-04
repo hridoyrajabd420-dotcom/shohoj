@@ -28,6 +28,7 @@ export const EXPENSE_CATEGORIES = [
   { value: 'Marketing', labelEn: 'Marketing', labelBn: 'মার্কেটিং ও বিজ্ঞাপন', color: 'bg-purple-50 text-purple-700 border-purple-200' },
   { value: 'Electricity', labelEn: 'Electricity', labelBn: 'বিদ্যুৎ বিল', color: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
   { value: 'Internet', labelEn: 'Internet', labelBn: 'ইন্টারনেট ও ফোন', color: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
+  { value: 'Utilities', labelEn: 'Utilities', labelBn: 'ইউটিলিটি ও গ্যাস/পানি', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   { value: 'Other', labelEn: 'Other', labelBn: 'অন্যান্য খরচ', color: 'bg-slate-100 text-slate-700 border-slate-200' },
 ] as const;
 
