@@ -5,3 +5,50 @@
     font-family: 'Plus Jakarta Sans', 'Hind Siliguri', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 }
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  /* Hide navigation, sidebars, toast notifications and print-hidden elements */
+  aside,
+  nav,
+  header,
+  .print\:hidden,
+  button:not(.print\:show) {
+    display: none !important;
+  }
+
+  /* Reset layout for full page printable document */
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  .fixed.inset-0 {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .shadow-2xl,
+  .shadow-xl,
+  .shadow-lg,
+  .shadow-md,
+  .shadow-sm,
+  .shadow-xs {
+    box-shadow: none !important;
+  }
+
+  /* Preserve colors and borders */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+

@@ -8,7 +8,21 @@ export type ExpenseCategory =
   | 'Utilities'
   | 'Other';
 
-export type UserPlan = 'FREE' | 'PRO';
+export type UserPlan = 'FREE' | 'PRO' | 'free' | 'pro';
+
+export type SubscriptionPlan = 'free' | 'pro';
+export type SubscriptionStatus = 'active' | 'inactive' | 'expired' | 'pending';
+
+export interface UserSubscription {
+  id?: string;
+  user_id: string;
+  plan: SubscriptionPlan;
+  status: SubscriptionStatus;
+  started_at?: string;
+  expires_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
 
 export interface UserProfile {
   id: string;
@@ -18,6 +32,8 @@ export interface UserProfile {
   business_name: string;
   business_type: string;
   plan?: UserPlan;
+  subscription_status?: SubscriptionStatus;
+  subscription_expires_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }

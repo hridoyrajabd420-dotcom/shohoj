@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Sale, Product, Customer } from '../../types';
 import { Modal } from '../common/Modal';
 import { formatCurrency, formatDate } from '../../lib/formatters';
+import { useAuth } from '../../context/AuthContext';
+import { useData } from '../../context/DataContext';
+import { generateInvoiceHtml } from '../../lib/pdfInvoiceGenerator';
 import {
   ShoppingCart,
   User,
@@ -16,6 +19,8 @@ import {
   MapPin,
   Tag,
   Package,
+  Download,
+  ExternalLink,
 } from 'lucide-react';
 
 interface SaleDetailsModalProps {
@@ -37,10 +42,30 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
   onEdit,
   onDelete,
 }) => {
+  const { profile } = useAuth();
+  const { businessSettings } = useData();
+  const [showFullPdfPreview, setShowFullPdfPreview] = useState(false);
+
   if (!sale) return null;
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleGeneratePdfInvoice = () => {
+    const html = generateInvoiceHtml({
+      sale,
+      product,
+      customer,
+      profile,
+      businessSettings,
+    });
+    const printWin = window.open('', '_blank');
+    if (printWin) {
+      printWin.document.open();
+      printWin.document.write(html);
+      printWin.document.close();
+    }
   };
 
   const qty = Number(sale.quantity) || 1;
@@ -228,7 +253,15 @@ export const SaleDetailsModal: React.FC<SaleDetailsModalProps> = ({
             )}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleGeneratePdfInvoice}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-emerald-600/20 flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>PDF ইনভয়েস জেনারেট</span>
+            </button>
             <button
               type="button"
               onClick={handlePrint}

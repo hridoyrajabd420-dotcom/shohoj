@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useData } from '../../context/DataContext';
 import { useToast } from '../../context/ToastContext';
 import { BUSINESS_TYPES } from '../../lib/formatters';
 import {
@@ -10,10 +11,15 @@ import {
   Briefcase,
   Check,
   ShieldCheck,
+  Sparkles,
+  Clock,
+  AlertCircle,
+  Calendar,
 } from 'lucide-react';
 
 export const ProfileView: React.FC = () => {
   const { profile, user, updateProfile } = useAuth();
+  const { proAccess, subscription } = useData();
   const { showToast } = useToast();
 
   const [fullName, setFullName] = useState('');
@@ -197,6 +203,69 @@ export const ProfileView: React.FC = () => {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Subscription Details Card (Part 2 Feature 1) */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">সাবস্ক্রিপশন ও মেম্বারশিপ স্ট্যাটাস</h3>
+              <p className="text-[11px] text-slate-500">অ্যাকাউন্টের প্ল্যান, মেয়াদ ও এক্সেস স্তর</p>
+            </div>
+          </div>
+
+          <div>
+            {proAccess.isProActive ? (
+              <span className="px-3 py-1 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-xs rounded-full shadow-xs flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5" /> PRO ACTIVE
+              </span>
+            ) : proAccess.hasExpired ? (
+              <span className="px-3 py-1 bg-rose-100 text-rose-800 font-bold text-xs rounded-full flex items-center gap-1 border border-rose-200">
+                <AlertCircle className="w-3.5 h-3.5" /> EXPIRED PRO
+              </span>
+            ) : (
+              <span className="px-3 py-1 bg-slate-100 text-slate-700 font-bold text-xs rounded-full border border-slate-200">
+                FREE সাধারণ প্ল্যান
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200/80 text-xs">
+          <div>
+            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">প্ল্যানের ধরন</span>
+            <span className="font-bold text-slate-800 uppercase">{proAccess.effectivePlan}</span>
+          </div>
+
+          <div>
+            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">স্ট্যাটাস</span>
+            <span className={`font-bold capitalize ${proAccess.isProActive ? 'text-emerald-700' : 'text-slate-700'}`}>
+              {proAccess.status}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">মেয়াদ উত্তীর্ণের তারিখ</span>
+            <span className="font-bold text-slate-800">
+              {proAccess.expiresAt
+                ? new Date(proAccess.expiresAt).toLocaleDateString('bn-BD')
+                : 'আনলিমিটেড / প্রযোজ্য নয়'}
+            </span>
+          </div>
+        </div>
+
+        {proAccess.hasExpired && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <span>
+              আপনার প্রো প্ল্যানের মেয়াদ শেষ হয়েছে। মেম্বারশিপ সক্রিয় না থাকায় অ্যাকাউন্টটি বর্তমানে Free ফিচারগুলো ব্যবহার করছে।
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

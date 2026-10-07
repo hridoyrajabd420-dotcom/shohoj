@@ -21,10 +21,11 @@ import {
 
 export const ProUpgradeView: React.FC = () => {
   const { user, profile } = useAuth();
-  const { paymentRequests, submitPaymentRequest, businessSettings } = useData();
+  const { paymentRequests, submitPaymentRequest, businessSettings, proAccess, activateProSubscription } = useData();
   const { showToast } = useToast();
 
-  const isPro = profile?.plan === 'PRO';
+  const isPro = proAccess.isProActive;
+  const hasExpired = proAccess.hasExpired;
 
   // Selected billing cycle
   const [billingCycle, setBillingCycle] = useState<'yearly' | 'monthly'>('yearly');
@@ -137,24 +138,38 @@ export const ProUpgradeView: React.FC = () => {
       {/* Current Plan Status Card */}
       <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div>
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">আপনার বর্তমান প্ল্যান</span>
             {isPro ? (
               <span className="px-3 py-0.5 rounded-full text-xs font-black bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 flex items-center gap-1 shadow-sm">
                 <Sparkles className="w-3.5 h-3.5" /> PRO এক্টিভ
+              </span>
+            ) : hasExpired ? (
+              <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5" /> মেয়াদোত্তীর্ণ PRO (Expired)
               </span>
             ) : (
               <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
                 FREE সাধারণ প্ল্যান
               </span>
             )}
+
+            {isPro && proAccess.daysRemaining !== null && (
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                মেয়াদ বাকি: {proAccess.daysRemaining} দিন
+              </span>
+            )}
           </div>
           <h2 className="text-2xl font-black text-slate-900">
-            {isPro ? 'Shohoj Bebsha Pro সদস্য' : 'সহজ ব্যবসা প্রো-তে আপগ্রেড করুন'}
+            {isPro ? 'Shohoj Bebsha Pro সদস্য' : hasExpired ? 'প্রো প্ল্যানের মেয়াদ শেষ হয়েছে' : 'সহজ ব্যবসা প্রো-তে আপগ্রেড করুন'}
           </h2>
           <p className="text-sm text-slate-600 mt-1 max-w-xl">
             {isPro
-              ? 'আপনার প্রো প্ল্যান সক্রিয় রয়েছে। আপনি সকল অ্যাডভান্সড ফিচার ও রিপোর্ট আনলিমিটেড উপভোগ করছেন।'
+              ? `আপনার প্রো প্ল্যান সক্রিয় রয়েছে। আপনি সকল অ্যাডভান্সড ফিচার ও রিপোর্ট আনলিমিটেড উপভোগ করছেন।${
+                  proAccess.expiresAt ? ` (মেয়াদ: ${new Date(proAccess.expiresAt).toLocaleDateString('bn-BD')})` : ''
+                }`
+              : hasExpired
+              ? 'আপনার প্রো মেম্বারশিপের মেয়াদ উত্তীর্ণ হওয়ায় অ্যাকাউন্টটি স্বয়ংক্রিয়ভাবে Free মোডে পরিচালিত হচ্ছে। পুনরায় সচল করতে নিচের ফর্মটি ব্যবহার করুন।'
               : 'আর্থিক হিসাব, প্রফেশনাল ইনভয়েস, সাপ্লায়ার ম্যানেজমেন্ট ও ৮টি অ্যাডভান্সড রিপোর্টের মাধ্যমে আপনার ব্যবসাকে ডিজিটালাইজ করুন।'}
           </p>
         </div>

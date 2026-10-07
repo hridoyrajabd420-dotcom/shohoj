@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { getSupabaseClient } from '../lib/supabase';
+import { evaluateProAccess, ProAccessResult } from '../lib/proAccess';
 import {
   Product,
   ProductInput,
@@ -20,6 +21,7 @@ import {
   PaymentRequest,
   BusinessSettings,
   DashboardMetrics,
+  UserSubscription,
 } from '../types';
 
 interface DataContextType {
@@ -43,6 +45,12 @@ interface DataContextType {
   supplierPayments: SupplierPayment[];
   paymentRequests: PaymentRequest[];
   businessSettings: BusinessSettings | null;
+  subscription: UserSubscription | null;
+  proAccess: ProAccessResult;
+
+  // Subscription Actions (Part 2 Feature 1 & 2)
+  updateSubscription: (data: Partial<UserSubscription>) => Promise<{ error: string | null }>;
+  activateProSubscription: (plan?: 'pro' | 'free', durationDays?: number) => Promise<{ error: string | null }>;
 
   // Product actions
   addProduct: (product: ProductInput | Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => Promise<{ error: string | null }>;
@@ -125,7 +133,7 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isConfigured } = useAuth();
+  const { user, profile, refreshProfile, isConfigured } = useAuth();
 
   // Part 1 State
   const [products, setProducts] = useState<Product[]>([]);
@@ -144,6 +152,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
   const [paymentRequests, setPaymentRequests] = useState<PaymentRequest[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
+  const [subscription, setSubscription] = useState<UserSubscription | null>(null);
+
+  // Evaluated Pro Access (Part 2 Feature 2)
+  const proAccess = useMemo(
+    () => evaluateProAccess(user, profile, subscription),
+    [user, profile, subscription]
+  );
 
   // Refresh all tables from Supabase (with safe fallbacks if Part 2 tables aren't migrated yet)
   const refreshData = useCallback(async () => {
@@ -159,6 +174,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCustomerPayments([]);
       setSupplierPayments([]);
       setPaymentRequests([]);
+      setSubscription(null);
       return;
     }
 
@@ -334,6 +350,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (settingsRes.data) setBusinessSettings(settingsRes.data as BusinessSettings);
       } catch {
         // Table not yet migrated
+      }
+
+      try {
+        const subRes = await supabase.from('subscriptions').select('*').eq('user_id', user.id).maybeSingle();
+        if (subRes.data) {
+          setSubscription(subRes.data as UserSubscription);
+        } else if (profile) {
+          setSubscription({
+            user_id: user.id,
+            plan: (profile.plan?.toLowerCase() === 'pro' ? 'pro' : 'free') as any,
+            status: (profile.subscription_status || 'active') as any,
+            expires_at: profile.subscription_expires_at || null,
+          });
+        }
+      } catch {
+        if (profile) {
+          setSubscription({
+            user_id: user.id,
+            plan: (profile.plan?.toLowerCase() === 'pro' ? 'pro' : 'free') as any,
+            status: (profile.subscription_status || 'active') as any,
+            expires_at: profile.subscription_expires_at || null,
+          });
+        }
       }
     } catch (err) {
       console.error('Error fetching data from Supabase:', err);
@@ -1936,6 +1975,135 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // ==================== Subscription & Pro Access Actions ====================
+  const updateSubscription = async (data: Partial<UserSubscription>) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { error: 'Not authenticated' };
+
+    try {
+      const updatedObj = {
+        user_id: user.id,
+        ...subscription,
+        ...data,
+        updated_at: new Date().toISOString(),
+      };
+
+      try {
+        const { data: resData, error: subErr } = await supabase
+          .from('subscriptions')
+          .upsert(updatedObj)
+          .select()
+          .single();
+
+        if (!subErr && resData) {
+          setSubscription(resData as UserSubscription);
+        }
+      } catch {
+        // Fallback update
+      }
+
+      // Also sync to profiles table for maximum compatibility
+      try {
+        await supabase
+          .from('profiles')
+          .update({
+            plan: data.plan || subscription?.plan || 'free',
+            subscription_status: data.status || subscription?.status || 'active',
+            subscription_expires_at: data.expires_at || subscription?.expires_at || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', user.id);
+      } catch {
+        // Handled
+      }
+
+      setSubscription((prev) => ({
+        user_id: user.id,
+        plan: (data.plan || prev?.plan || 'free') as any,
+        status: (data.status || prev?.status || 'active') as any,
+        started_at: prev?.started_at || new Date().toISOString(),
+        expires_at: data.expires_at !== undefined ? data.expires_at : prev?.expires_at || null,
+        updated_at: new Date().toISOString(),
+      }));
+
+      await refreshProfile();
+      return { error: null };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : 'Subscription update failed' };
+    }
+  };
+
+  const activateProSubscription = async (plan: 'pro' | 'free' = 'pro', durationDays: number = 365) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { error: 'Not authenticated' };
+
+    try {
+      // 1. Try atomic database RPC function first
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('set_user_subscription', {
+          p_plan: plan,
+          p_duration_days: durationDays,
+        });
+
+        if (!rpcErr && rpcRes?.success) {
+          setSubscription({
+            user_id: user.id,
+            plan,
+            status: 'active',
+            started_at: new Date().toISOString(),
+            expires_at: rpcRes.expires_at,
+            updated_at: new Date().toISOString(),
+          });
+          await refreshProfile();
+          return { error: null };
+        }
+      } catch {
+        // RPC fallback to direct upsert
+      }
+
+      // 2. Direct database upsert
+      const expiresAt =
+        plan === 'pro'
+          ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString()
+          : null;
+
+      const newSub: UserSubscription = {
+        user_id: user.id,
+        plan,
+        status: 'active',
+        started_at: new Date().toISOString(),
+        expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
+      };
+
+      try {
+        await supabase.from('subscriptions').upsert(newSub);
+      } catch {
+        // Table not created yet
+      }
+
+      try {
+        await supabase
+          .from('profiles')
+          .update({
+            plan,
+            subscription_status: 'active',
+            subscription_expires_at: expiresAt,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', user.id);
+      } catch {
+        // Columns fallback
+      }
+
+      setSubscription(newSub);
+      await refreshProfile();
+      return { error: null };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : 'Failed to activate subscription' };
+    }
+  };
+
   // ==================== Comprehensive Metrics ====================
   const lowStockProducts = useMemo(() => {
     return products.filter((p) => p.stock_quantity <= (p.low_stock_threshold ?? p.low_stock_level ?? 5));
@@ -2026,6 +2194,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supplierPayments,
         paymentRequests,
         businessSettings,
+        subscription,
+        proAccess,
+        updateSubscription,
+        activateProSubscription,
         // Part 1 actions
         addProduct,
         updateProduct,

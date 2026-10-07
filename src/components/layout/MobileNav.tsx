@@ -39,9 +39,9 @@ export const MobileNav: React.FC<MobileNavProps> = ({
   onClose,
 }) => {
   const { profile, signOut } = useAuth();
-  const { lowStockProducts } = useData();
+  const { lowStockProducts, proAccess } = useData();
 
-  const isPro = profile?.plan === 'PRO';
+  const isPro = proAccess.isProActive;
 
   const handleSelect = (tab: ViewTab) => {
     setCurrentTab(tab);

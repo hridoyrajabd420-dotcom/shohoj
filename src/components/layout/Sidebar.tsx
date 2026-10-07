@@ -32,11 +32,11 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) => {
   const { profile, signOut } = useAuth();
-  const { lowStockProducts } = useData();
+  const { lowStockProducts, proAccess } = useData();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalFeatureTitle, setModalFeatureTitle] = useState('Shohoj Bebsha Pro');
 
-  const isPro = profile?.plan === 'PRO';
+  const isPro = proAccess.isProActive;
 
   // Core Part 1 (Free) Nav Items
   const freeNavItems = [

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useAuth } from '../../context/AuthContext';
-import { Lock, Sparkles, ArrowRight, ShieldCheck } from 'lucide-react';
+import { useData } from '../../context/DataContext';
+import { Lock, Sparkles, ArrowRight, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { UpgradeModal } from './UpgradeModal';
 
 interface ProGateProps {
@@ -19,10 +19,12 @@ export const ProGate: React.FC<ProGateProps> = ({
   onNavigateToUpgrade,
   previewMode = false,
 }) => {
-  const { profile } = useAuth();
+  const { proAccess } = useData();
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const isPro = profile?.plan === 'PRO';
+  // Pro access is strictly true only if pro is active and not expired
+  const isPro = proAccess.isProActive;
+  const hasExpired = proAccess.hasExpired;
 
   if (isPro) {
     return <>{children}</>;
@@ -35,6 +37,10 @@ export const ProGate: React.FC<ProGateProps> = ({
       setIsModalOpen(true);
     }
   };
+
+  const defaultDescription = hasExpired
+    ? 'আপনার Shohoj Bebsha Pro সাবস্ক্রিপশনের মেয়াদ উত্তীর্ণ হয়েছে। পুনরায় সচল করতে রিনিউ বা আপগ্রেড করুন।'
+    : 'এই ফিচারটি ব্যবহার করতে Shohoj Bebsha Pro-তে Upgrade করুন।';
 
   if (previewMode) {
     return (
@@ -92,7 +98,7 @@ export const ProGate: React.FC<ProGateProps> = ({
       </h3>
 
       <p className="text-sm text-slate-600 max-w-md mx-auto mb-6">
-        {featureDescription || 'এই ফিচারটি ব্যবহার করতে Shohoj Bebsha Pro-তে Upgrade করুন।'}
+        {featureDescription || defaultDescription}
       </p>
 
       <div className="inline-flex flex-col sm:flex-row items-center gap-3">

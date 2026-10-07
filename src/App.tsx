@@ -143,7 +143,9 @@ const AppContent: React.FC = () => {
 
           {currentTab === 'expenses' && <ExpensesView />}
 
-          {currentTab === 'customers' && <CustomersView />}
+          {currentTab === 'customers' && (
+            <CustomersView onNavigateToUpgrade={() => setCurrentTab('pro_upgrade')} />
+          )}
 
           {/* PART 2 PRO VIEWS */}
           {currentTab === 'financials' && (

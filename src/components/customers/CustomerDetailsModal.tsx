@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Customer, CustomerPayment } from '../../types';
 import { Modal } from '../common/Modal';
+import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { useToast } from '../../context/ToastContext';
 import { formatCurrency, formatDate } from '../../lib/formatters';
@@ -20,23 +21,30 @@ import {
   Trash2,
   RefreshCw,
   PlusCircle,
+  Printer,
+  Download,
+  Sparkles,
+  Lock,
 } from 'lucide-react';
 
 interface CustomerDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   customer: Customer | null;
+  onNavigateToUpgrade?: () => void;
 }
 
 export const CustomerDetailsModal: React.FC<CustomerDetailsModalProps> = ({
   isOpen,
   onClose,
   customer,
+  onNavigateToUpgrade,
 }) => {
-  const { sales, products, customerPayments, deleteCustomerPayment, recalculateCustomerDue } = useData();
+  const { profile } = useAuth();
+  const { sales, products, customerPayments, deleteCustomerPayment, recalculateCustomerDue, proAccess } = useData();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'sales' | 'payments'>('sales');
+  const [activeTab, setActiveTab] = useState<'sales' | 'payments' | 'statement'>('sales');
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false);
   const [paymentToDelete, setPaymentToDelete] = useState<CustomerPayment | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -54,6 +62,96 @@ export const CustomerDetailsModal: React.FC<CustomerDetailsModalProps> = ({
   const totalSalesAmount = customerSales.reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
   const totalPaidAtSales = customerSales.reduce((acc, s) => acc + Number(s.paid_amount || 0), 0);
   const totalCollectedViaPayments = customerPaymentRecords.reduce((acc, p) => acc + Number(p.amount || 0), 0);
+
+  // Combined Ledger for Statement (Part 2 Feature 3: Customer Statement)
+  const statementLedger = useMemo(() => {
+    type LedgerRow = {
+      id: string;
+      date: string;
+      type: 'sale' | 'payment';
+      description: string;
+      debit: number; // Increase in receivable
+      credit: number; // Payment received
+      balance: number;
+    };
+
+    const entries: { date: string; time: number; row: Omit<LedgerRow, 'balance'> }[] = [];
+
+    customerSales.forEach((s) => {
+      const prod = products.find((p) => p.id === s.product_id);
+      const prodName = prod?.name || 'বিক্রয় (Sale)';
+      entries.push({
+        date: s.sale_date,
+        time: new Date(s.sale_date || s.created_at || 0).getTime(),
+        row: {
+          id: `sale-${s.id}`,
+          date: s.sale_date,
+          type: 'sale',
+          description: `${prodName} (${s.quantity}টি) - বিল ৳${s.total_amount}${s.paid_amount ? ` (পরিশোধ ৳${s.paid_amount})` : ''}`,
+          debit: Number(s.total_amount || 0),
+          credit: Number(s.paid_amount || 0),
+        },
+      });
+    });
+
+    customerPaymentRecords.forEach((p) => {
+      entries.push({
+        date: p.payment_date || p.date || '',
+        time: new Date(p.payment_date || p.date || p.created_at || 0).getTime(),
+        row: {
+          id: `pay-${p.id}`,
+          date: p.payment_date || p.date || '',
+          type: 'payment',
+          description: `বকেয়া আদায় (${p.payment_method})${p.notes ? `: ${p.notes}` : ''}`,
+          debit: 0,
+          credit: Number(p.amount || 0),
+        },
+      });
+    });
+
+    // Sort chronologically ascending
+    entries.sort((a, b) => a.time - b.time);
+
+    let runningBalance = 0;
+    const finalRows: LedgerRow[] = entries.map((item) => {
+      runningBalance += item.row.debit - item.row.credit;
+      return {
+        ...item.row,
+        balance: Math.max(0, runningBalance),
+      };
+    });
+
+    return finalRows;
+  }, [customerSales, customerPaymentRecords, products]);
+
+  // Export Statement CSV
+  const handleExportStatementCSV = () => {
+    if (!customer) return;
+    let csv = 'data:text/csv;charset=utf-8,';
+    csv += `গ্রাহক স্টেটমেন্ট (Customer Statement) - ${customer.name}\n`;
+    csv += `তারিখ,বিবরণ,ডেবিট/বিল (৳),ক্রেডিট/পরিশোধ (৳),অবশিষ্ট ব্যালেন্স (৳)\n`;
+
+    statementLedger.forEach((row) => {
+      const cleanDesc = row.description.replace(/"/g, '""');
+      csv += `"${row.date}","${cleanDesc}",${row.debit},${row.credit},${row.balance}\n`;
+    });
+
+    csv += `\n"সর্বমোট বকেয়া পাওনা","","","",${customer.due_amount}\n`;
+
+    const encodedUri = encodeURI(csv);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `statement_${customer.name.replace(/\s+/g, '_')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('গ্রাহক স্টেটমেন্ট CSV ডাউনলোড হয়েছে', 'success');
+  };
+
+  // Printable Statement Trigger
+  const handlePrintStatement = () => {
+    window.print();
+  };
 
   const handleRecalculate = async () => {
     setRecalcLoading(true);
@@ -207,6 +305,20 @@ export const CustomerDetailsModal: React.FC<CustomerDetailsModalProps> = ({
               <CreditCard className="w-3.5 h-3.5" />
               <span>বকেয়া পরিশোধের ইতিহাস ({customerPaymentRecords.length})</span>
             </button>
+            <button
+              onClick={() => setActiveTab('statement')}
+              className={`pb-2.5 px-4 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'statement'
+                  ? 'border-emerald-600 text-emerald-700'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>গ্রাহক খতিয়ান / স্টেটমেন্ট</span>
+              <span className="text-[10px] bg-amber-100 text-amber-800 font-black px-1.5 py-0.2 rounded-full border border-amber-200">
+                PRO
+              </span>
+            </button>
           </div>
 
           {/* TAB 1: Sales Purchase History */}
@@ -349,6 +461,136 @@ export const CustomerDetailsModal: React.FC<CustomerDetailsModalProps> = ({
                             {formatCurrency(totalCollectedViaPayments)}
                           </td>
                           <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: Customer Statement & Full Ledger (Part 2 Feature 3: Customer Statement) */}
+          {activeTab === 'statement' && (
+            <div className="space-y-4">
+              {/* Pro Feature Access Banner / Actions */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <span>পূর্ণাঙ্গ গ্রাহক খতিয়ান ও স্টেটমেন্ট</span>
+                      {proAccess.isProActive ? (
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.2 rounded-full">
+                          PRO Active
+                        </span>
+                      ) : (
+                        <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.2 rounded-full">
+                          PRO এক্সক্লুসিভ
+                        </span>
+                      )}
+                    </h5>
+                    <p className="text-[11px] text-slate-500">
+                      ক্রয়, পরিশোধ ও বকেয়া আদায়ের স্বয়ংক্রিয় ধারাবাহিক জের (Running Balance)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  {proAccess.isProActive ? (
+                    <>
+                      <button
+                        onClick={handlePrintStatement}
+                        className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>প্রিন্ট স্টেটমেন্ট</span>
+                      </button>
+                      <button
+                        onClick={handleExportStatementCSV}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>CSV এক্সপোর্ট</span>
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        onClose();
+                        if (onNavigateToUpgrade) onNavigateToUpgrade();
+                      }}
+                      className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-emerald-600 hover:from-amber-600 hover:to-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Upgrade to Pro</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Statement Ledger Table */}
+              {statementLedger.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  এই গ্রাহকের কোনো লেনদেন (বিক্রয় বা পেমেন্ট) পাওয়া যায়নি।
+                </div>
+              ) : (
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100/90 text-[10px] font-bold text-slate-600 uppercase border-b border-slate-200">
+                        <tr>
+                          <th className="px-3 py-2.5">তারিখ</th>
+                          <th className="px-3 py-2.5">বিবরণ (Transactions)</th>
+                          <th className="px-3 py-2.5 text-right">ডেবিট / বিল (৳)</th>
+                          <th className="px-3 py-2.5 text-right">ক্রেডিট / জমা (৳)</th>
+                          <th className="px-3 py-2.5 text-right bg-slate-100">জের / ব্যালেন্স (৳)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-medium">
+                        {statementLedger.map((row) => (
+                          <tr key={row.id} className="hover:bg-slate-50">
+                            <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{row.date}</td>
+                            <td className="px-3 py-2.5 text-slate-800">
+                              <span
+                                className={`inline-block mr-1.5 px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                  row.type === 'sale'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-emerald-100 text-emerald-800'
+                                }`}
+                              >
+                                {row.type === 'sale' ? 'বিক্রয়' : 'আদায়'}
+                              </span>
+                              <span>{row.description}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-slate-900 font-bold">
+                              {row.debit > 0 ? formatCurrency(row.debit) : '—'}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-emerald-700 font-bold">
+                              {row.credit > 0 ? formatCurrency(row.credit) : '—'}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-black text-rose-600 bg-slate-50/60">
+                              {formatCurrency(row.balance)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-slate-50 border-t border-slate-200 font-bold">
+                        <tr>
+                          <td colSpan={2} className="px-3 py-2.5 text-slate-700">
+                            মোট লেনদেনের সারাংশ:
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-slate-900">
+                            {formatCurrency(totalSalesAmount)}
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-emerald-700">
+                            {formatCurrency(totalPaidAtSales + totalCollectedViaPayments)}
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-rose-600 font-black text-sm bg-rose-50/50">
+                            {formatCurrency(customer.due_amount)}
+                          </td>
                         </tr>
                       </tfoot>
                     </table>

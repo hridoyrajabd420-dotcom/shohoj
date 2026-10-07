@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
+import { useAuth } from '../../context/AuthContext';
 import { Sale } from '../../types';
 import { formatCurrency, formatDate } from '../../lib/formatters';
+import { generateInvoiceHtml } from '../../lib/pdfInvoiceGenerator';
 import { SaleFormModal } from './SaleFormModal';
 import { SaleDetailsModal } from './SaleDetailsModal';
 import { ConfirmDialog } from '../common/ConfirmDialog';
@@ -18,10 +20,12 @@ import {
   Clock,
   ArrowUpRight,
   Receipt,
+  Download,
 } from 'lucide-react';
 
 export const SalesView: React.FC = () => {
-  const { sales, products, customers, deleteSale, loading } = useData();
+  const { sales, products, customers, deleteSale, loading, businessSettings } = useData();
+  const { profile } = useAuth();
   const { showToast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -309,6 +313,29 @@ export const SalesView: React.FC = () => {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => {
+                              const prod = products.find((p) => p.id === sale.product_id);
+                              const cust = customers.find((c) => c.id === sale.customer_id);
+                              const html = generateInvoiceHtml({
+                                sale,
+                                product: prod,
+                                customer: cust,
+                                profile,
+                                businessSettings,
+                              });
+                              const printWin = window.open('', '_blank');
+                              if (printWin) {
+                                printWin.document.open();
+                                printWin.document.write(html);
+                                printWin.document.close();
+                              }
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                            title="PDF ইনভয়েস ডাউনলোড / প্রিন্ট (PDF Invoice)"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() => handleOpenDetails(sale)}
                             className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"

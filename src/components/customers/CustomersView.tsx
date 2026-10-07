@@ -23,7 +23,11 @@ import {
   CreditCard,
 } from 'lucide-react';
 
-export const CustomersView: React.FC = () => {
+interface CustomersViewProps {
+  onNavigateToUpgrade?: () => void;
+}
+
+export const CustomersView: React.FC<CustomersViewProps> = ({ onNavigateToUpgrade }) => {
   const { customers, sales, deleteCustomer, loading } = useData();
   const { showToast } = useToast();
 
@@ -430,6 +434,7 @@ export const CustomersView: React.FC = () => {
         isOpen={Boolean(customerForDetails)}
         onClose={() => setCustomerForDetails(null)}
         customer={customerForDetails}
+        onNavigateToUpgrade={onNavigateToUpgrade}
       />
 
       {/* Quick Record Payment Modal */}

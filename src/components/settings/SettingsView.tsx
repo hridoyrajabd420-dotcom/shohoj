@@ -348,7 +348,23 @@ create table if not exists public.stock_adjustments (
   created_at timestamptz default now()
 );
 
--- 12. Customer Payments Table
+-- 12. Subscriptions Table (Part 2: Pro Plan & Feature Access Control)
+create table if not exists public.subscriptions (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users(id) on delete cascade not null unique,
+  plan text not null default 'free' check (plan in ('free', 'pro')),
+  status text not null default 'active' check (status in ('active', 'inactive', 'expired', 'pending')),
+  started_at timestamptz default now(),
+  expires_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.profiles add column if not exists plan text default 'free';
+alter table public.profiles add column if not exists subscription_status text default 'active';
+alter table public.profiles add column if not exists subscription_expires_at timestamptz;
+
+-- 13. Customer Payments Table
 create table if not exists public.customer_payments (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users on delete cascade not null,
@@ -868,6 +884,88 @@ create policy "Users insert own customer payments" on public.customer_payments f
 
 create policy "Users view own supplier payments" on public.supplier_payments for select using (auth.uid() = user_id);
 create policy "Users insert own supplier payments" on public.supplier_payments for insert with check (auth.uid() = user_id);
+
+-- 10. Subscriptions Table & Policies
+create table if not exists public.subscriptions (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users(id) on delete cascade not null unique,
+  plan text not null default 'free' check (plan in ('free', 'pro')),
+  status text not null default 'active' check (status in ('active', 'inactive', 'expired', 'pending')),
+  started_at timestamptz default now(),
+  expires_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.subscriptions enable row level security;
+create policy "Users view own subscription" on public.subscriptions for select using (auth.uid() = user_id);
+create policy "Users insert own subscription" on public.subscriptions for insert with check (auth.uid() = user_id);
+create policy "Users update own subscription" on public.subscriptions for update using (auth.uid() = user_id);
+
+-- Pro security check and activation functions
+create or replace function public.is_pro_active(p_user_id uuid)
+returns boolean
+language plpgsql
+security definer
+as $$
+declare
+  v_sub record;
+begin
+  select plan, status, expires_at into v_sub
+  from public.subscriptions
+  where user_id = p_user_id;
+
+  if found and lower(v_sub.plan) = 'pro' and lower(v_sub.status) = 'active' then
+    if v_sub.expires_at is null or v_sub.expires_at > now() then
+      return true;
+    end if;
+  end if;
+  return false;
+end;
+$$;
+grant execute on function public.is_pro_active to authenticated;
+
+create or replace function public.set_user_subscription(
+  p_plan text,
+  p_duration_days integer default 365
+) returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_expires_at timestamptz;
+  v_plan_clean text := lower(p_plan);
+begin
+  if v_user_id is null then raise exception 'Not authenticated'; end if;
+  if v_plan_clean not in ('free', 'pro') then raise exception 'Invalid plan: must be free or pro'; end if;
+
+  if v_plan_clean = 'pro' then
+    v_expires_at := now() + (p_duration_days || ' days')::interval;
+  else
+    v_expires_at := null;
+  end if;
+
+  insert into public.subscriptions (user_id, plan, status, started_at, expires_at, updated_at)
+  values (v_user_id, v_plan_clean, 'active', now(), v_expires_at, now())
+  on conflict (user_id)
+  do update set
+    plan = v_plan_clean,
+    status = 'active',
+    expires_at = v_expires_at,
+    updated_at = now();
+
+  update public.profiles
+  set plan = v_plan_clean,
+      subscription_status = 'active',
+      subscription_expires_at = v_expires_at,
+      updated_at = now()
+  where id = v_user_id;
+
+  return jsonb_build_object('success', true, 'plan', v_plan_clean, 'expires_at', v_expires_at);
+end;
+$$;
+grant execute on function public.set_user_subscription to authenticated;
 `;
 
   const handleCopyFullSql = () => {

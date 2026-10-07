@@ -1,6 +1,7 @@
 import React from 'react';
 import { ViewTab } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { useData } from '../../context/DataContext';
 import { Menu, Database, ShieldCheck, User, Sparkles } from 'lucide-react';
 
 interface NavbarProps {
@@ -31,8 +32,9 @@ const TAB_TITLES: Record<ViewTab, { bn: string; en: string }> = {
 
 export const Navbar: React.FC<NavbarProps> = ({ currentTab, onOpenMobileMenu, onOpenSetup, onNavigateToUpgrade }) => {
   const { profile, user, isConfigured } = useAuth();
+  const { proAccess } = useData();
   const currentTitle = TAB_TITLES[currentTab] || { bn: 'সহজ ব্যবসা', en: 'Shohoj Bebsha' };
-  const isPro = profile?.plan === 'PRO';
+  const isPro = proAccess.isProActive;
 
   return (
     <header className="h-16 bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-20 px-4 sm:px-6 flex items-center justify-between">
