@@ -315,9 +315,6 @@ export const CustomerDetailsModal: React.FC<CustomerDetailsModalProps> = ({
             >
               <FileText className="w-3.5 h-3.5" />
               <span>গ্রাহক খতিয়ান / স্টেটমেন্ট</span>
-              <span className="text-[10px] bg-amber-100 text-amber-800 font-black px-1.5 py-0.2 rounded-full border border-amber-200">
-                PRO
-              </span>
             </button>
           </div>
 
@@ -473,24 +470,15 @@ export const CustomerDetailsModal: React.FC<CustomerDetailsModalProps> = ({
           {/* TAB 3: Customer Statement & Full Ledger (Part 2 Feature 3: Customer Statement) */}
           {activeTab === 'statement' && (
             <div className="space-y-4">
-              {/* Pro Feature Access Banner / Actions */}
+              {/* Statement Action Banner */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-                    <Sparkles className="w-4 h-4" />
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4" />
                   </div>
                   <div>
-                    <h5 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                      <span>পূর্ণাঙ্গ গ্রাহক খতিয়ান ও স্টেটমেন্ট</span>
-                      {proAccess.isProActive ? (
-                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.2 rounded-full">
-                          PRO Active
-                        </span>
-                      ) : (
-                        <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.2 rounded-full">
-                          PRO এক্সক্লুসিভ
-                        </span>
-                      )}
+                    <h5 className="text-xs font-bold text-slate-900">
+                      পূর্ণাঙ্গ গ্রাহক খতিয়ান ও স্টেটমেন্ট
                     </h5>
                     <p className="text-[11px] text-slate-500">
                       ক্রয়, পরিশোধ ও বকেয়া আদায়ের স্বয়ংক্রিয় ধারাবাহিক জের (Running Balance)
@@ -499,35 +487,20 @@ export const CustomerDetailsModal: React.FC<CustomerDetailsModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 self-end sm:self-auto">
-                  {proAccess.isProActive ? (
-                    <>
-                      <button
-                        onClick={handlePrintStatement}
-                        className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                        <span>প্রিন্ট স্টেটমেন্ট</span>
-                      </button>
-                      <button
-                        onClick={handleExportStatementCSV}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>CSV এক্সপোর্ট</span>
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        onClose();
-                        if (onNavigateToUpgrade) onNavigateToUpgrade();
-                      }}
-                      className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-emerald-600 hover:from-amber-600 hover:to-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>Upgrade to Pro</span>
-                    </button>
-                  )}
+                  <button
+                    onClick={handlePrintStatement}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>প্রিন্ট স্টেটমেন্ট</span>
+                  </button>
+                  <button
+                    onClick={handleExportStatementCSV}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>CSV এক্সপোর্ট</span>
+                  </button>
                 </div>
               </div>
 

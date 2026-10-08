@@ -17,13 +17,13 @@ export function generateInvoiceHtml({
   businessSettings,
 }: GenerateInvoiceHtmlOptions): string {
   const businessName =
-    businessSettings?.business_name || profile?.business_name || 'সহজ ব্যবসা (Shohoj Bebsha)';
+    (businessSettings as any)?.business_name || profile?.business_name || 'সহজ ব্যবসা (Shohoj Bebsha)';
   const businessPhone =
-    businessSettings?.phone || profile?.phone || '০১৭০০-০০০০০০';
+    (businessSettings as any)?.phone || profile?.phone || '০১৭০০-০০০০০০';
   const businessAddress =
-    businessSettings?.address || 'ঢাকা, বাংলাদেশ';
+    (businessSettings as any)?.address || 'ঢাকা, বাংলাদেশ';
   const businessEmail =
-    businessSettings?.email || profile?.email || '';
+    (businessSettings as any)?.email || profile?.email || '';
   const businessLogo = businessSettings?.logo_url || '';
 
   const customerName =

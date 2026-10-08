@@ -24,6 +24,7 @@ import {
   RotateCcw,
   Tag,
   Boxes,
+  Landmark,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -53,7 +54,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenProductModal,
   onOpenExpenseModal,
 }) => {
-  const { sales, expenses, products, customers, loading } = useData();
+  const { sales, expenses, products, customers, fixedAssets, fixedAssetsSummary, loading } = useData();
 
   // Filters State (Part E)
   const [filterPeriod, setFilterPeriod] = useState<DashboardFilter>('month');
@@ -651,6 +652,75 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <p className="text-[11px] text-slate-500 mt-1">
               {filteredRecords.periodSales.length}টি বিক্রয় সম্পন্ন
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Requirement 8: Fixed Asset Dashboard Summary */}
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs hover:border-emerald-200 transition-all">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+              <Landmark className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                স্থায়ী সম্পদ ও অবচয় সামারি (Fixed Assets & CapEx)
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                ব্যবসায়ের মূলধনী সম্পদ, সঞ্চিত অবচয় ও বর্তমান নিট পুস্তক মূল্য
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => onNavigate('fixed_assets')}
+            className="self-start sm:self-auto px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-all flex items-center gap-1.5"
+          >
+            <span>সম্পদ রেজিস্টার দেখুন</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3">
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+            <span className="text-[11px] text-slate-500 font-semibold block">মোট স্থায়ী সম্পদ (Gross)</span>
+            <span className="text-base sm:text-lg font-black text-slate-900 mt-0.5 block">
+              {formatCurrency(fixedAssetsSummary.totalGrossAssets)}
+            </span>
+            <span className="text-[10px] text-slate-400 mt-0.5 block">
+              {fixedAssets.length}টি নিবন্ধিত সম্পদ
+            </span>
+          </div>
+
+          <div className="bg-rose-50/60 p-3 rounded-xl border border-rose-100">
+            <span className="text-[11px] text-rose-700 font-semibold block">মোট পুঞ্জীভূত অবচয় (Accum.)</span>
+            <span className="text-base sm:text-lg font-black text-rose-600 mt-0.5 block">
+              {formatCurrency(fixedAssetsSummary.totalAccumulatedDepreciation)}
+            </span>
+            <span className="text-[10px] text-rose-500 mt-0.5 block">
+              আজ পর্যন্ত মোট ক্ষয়
+            </span>
+          </div>
+
+          <div className="bg-emerald-50/70 p-3 rounded-xl border border-emerald-100">
+            <span className="text-[11px] text-emerald-800 font-semibold block">নিট পুস্তক মূল্য (Net Book Value)</span>
+            <span className="text-base sm:text-lg font-black text-emerald-700 mt-0.5 block">
+              {formatCurrency(fixedAssetsSummary.totalNetBookValue)}
+            </span>
+            <span className="text-[10px] text-emerald-600 mt-0.5 block">
+              ব্যালেন্স শীট খাঁটি সম্পদ
+            </span>
+          </div>
+
+          <div className="bg-blue-50/60 p-3 rounded-xl border border-blue-100">
+            <span className="text-[11px] text-blue-800 font-semibold block">মাসিক অবচয় ব্যয় (Monthly)</span>
+            <span className="text-base sm:text-lg font-black text-blue-700 mt-0.5 block">
+              {formatCurrency(fixedAssetsSummary.totalMonthlyDepreciation)}
+            </span>
+            <span className="text-[10px] text-blue-600 mt-0.5 block">
+              চলতি মাসের P&L বরাদ্দ
+            </span>
           </div>
         </div>
       </div>

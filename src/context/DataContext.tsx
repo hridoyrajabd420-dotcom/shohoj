@@ -11,6 +11,8 @@ import {
   SaleInput,
   Expense,
   ExpenseInput,
+  RecurringExpense,
+  RecurringExpenseInput,
   Supplier,
   Purchase,
   StockAdjustment,
@@ -22,7 +24,12 @@ import {
   BusinessSettings,
   DashboardMetrics,
   UserSubscription,
+  FixedAsset,
+  FixedAssetInput,
+  FixedAssetsSummary,
 } from '../types';
+import { getDueExpensesForRecurring, formatYMD } from '../lib/recurringExpensesEngine';
+import { calculateFixedAssetsSummary } from '../lib/depreciationEngine';
 
 interface DataContextType {
   // Part 1 State
@@ -72,6 +79,20 @@ interface DataContextType {
   addExpense: (expense: ExpenseInput | Omit<Expense, 'id' | 'user_id' | 'created_at'>) => Promise<{ error: string | null }>;
   updateExpense: (id: string, expense: Partial<ExpenseInput | Expense>) => Promise<{ error: string | null }>;
   deleteExpense: (id: string) => Promise<{ error: string | null }>;
+
+  // Recurring Expenses actions (স্বয়ংক্রিয় নির্দিষ্ট খরচ)
+  recurringExpenses: RecurringExpense[];
+  addRecurringExpense: (data: RecurringExpenseInput) => Promise<{ error: string | null }>;
+  updateRecurringExpense: (id: string, data: Partial<RecurringExpenseInput | RecurringExpense>) => Promise<{ error: string | null }>;
+  deleteRecurringExpense: (id: string) => Promise<{ error: string | null }>;
+  triggerRecurringExpensesSync: () => Promise<{ generatedCount: number; error: string | null }>;
+
+  // Fixed Assets (স্থায়ী সম্পদ ও অবচয়)
+  fixedAssets: FixedAsset[];
+  fixedAssetsSummary: FixedAssetsSummary;
+  addFixedAsset: (data: FixedAssetInput) => Promise<{ error: string | null }>;
+  updateFixedAsset: (id: string, data: Partial<FixedAssetInput | FixedAsset>) => Promise<{ error: string | null }>;
+  deleteFixedAsset: (id: string) => Promise<{ error: string | null }>;
 
   // Part 2 Supplier actions
   addSupplier: (supplier: Omit<Supplier, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => Promise<{ data?: Supplier; error: string | null }>;
@@ -140,6 +161,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
+  const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [isProductsTableMissing, setIsProductsTableMissing] = useState<boolean>(false);
 
@@ -175,6 +198,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSupplierPayments([]);
       setPaymentRequests([]);
       setSubscription(null);
+      setFixedAssets([]);
       return;
     }
 
@@ -261,11 +285,93 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             expense_date: expDate,
             date: expDate,
             description: e.description || '',
+            recurring_expense_id: e.recurring_expense_id || null,
+            is_recurring_auto: Boolean(e.is_recurring_auto),
             created_at: e.created_at,
             updated_at: e.updated_at,
           };
         });
         setExpenses(mappedExpenses);
+      }
+
+      // Fetch Recurring Expenses (স্বয়ংক্রিয় নির্দিষ্ট খরচ)
+      let loadedRecurring: RecurringExpense[] = [];
+      try {
+        const recRes = await supabase
+          .from('recurring_expenses')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (recRes.data) {
+          loadedRecurring = recRes.data as RecurringExpense[];
+          setRecurringExpenses(loadedRecurring);
+        }
+      } catch {
+        // Table not yet migrated
+      }
+
+      // Automatically sync due recurring expenses into the expenses table
+      if (loadedRecurring.length > 0 && expsRes.data) {
+        const todayStr = formatYMD(new Date());
+        const currentExpList = (expsRes.data as any[]).map((e) => ({
+          ...e,
+          title: e.title || e.category,
+          expense_date: e.expense_date || e.date,
+          date: e.date || e.expense_date,
+        })) as Expense[];
+
+        for (const rec of loadedRecurring) {
+          if (!rec.is_active) continue;
+          const dueItems = getDueExpensesForRecurring(rec, todayStr, currentExpList);
+          for (const item of dueItems) {
+            try {
+              const insertPayload: Record<string, any> = {
+                user_id: user.id,
+                title: item.title,
+                category: item.category,
+                amount: item.amount,
+                expense_date: item.expense_date,
+                date: item.expense_date,
+                description: item.description,
+                recurring_expense_id: item.recurring_expense_id,
+                is_recurring_auto: true,
+              };
+
+              let insRes = await supabase.from('expenses').insert(insertPayload).select().single();
+              if (insRes.error && (insRes.error.code === '42703' || insRes.error.message?.includes('recurring_expense_id') || insRes.error.message?.includes('is_recurring_auto'))) {
+                // Fallback for minimal table schema
+                const fallbackPayload = {
+                  user_id: user.id,
+                  category: item.category,
+                  amount: item.amount,
+                  date: item.expense_date,
+                  description: item.description,
+                };
+                insRes = await supabase.from('expenses').insert(fallbackPayload).select().single();
+              }
+
+              if (insRes.data) {
+                const norm: Expense = {
+                  id: insRes.data.id,
+                  user_id: insRes.data.user_id,
+                  title: insRes.data.title || item.title,
+                  category: insRes.data.category,
+                  amount: Number(insRes.data.amount) || item.amount,
+                  expense_date: item.expense_date,
+                  date: item.expense_date,
+                  description: insRes.data.description || item.description,
+                  recurring_expense_id: item.recurring_expense_id,
+                  is_recurring_auto: true,
+                  created_at: insRes.data.created_at,
+                  updated_at: insRes.data.updated_at,
+                };
+                currentExpList.unshift(norm);
+                setExpenses((prev) => [norm, ...prev.filter((p) => p.id !== norm.id)]);
+              }
+            } catch (syncErr) {
+              console.warn('Could not auto-generate recurring expense item:', syncErr);
+            }
+          }
+        }
       }
 
       // Customer Payments (Part 1 Step 5: Customer Due Management)
@@ -350,6 +456,50 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (settingsRes.data) setBusinessSettings(settingsRes.data as BusinessSettings);
       } catch {
         // Table not yet migrated
+      }
+
+      // Fixed Assets (স্থায়ী সম্পদ ও অবচয়)
+      try {
+        const assetRes = await supabase
+          .from('fixed_assets')
+          .select('*')
+          .order('purchase_date', { ascending: false });
+        if (assetRes.data) {
+          const mappedAssets: FixedAsset[] = assetRes.data.map((a: any) => ({
+            id: a.id,
+            user_id: a.user_id,
+            name: a.name || a.asset_name || 'Unnamed Asset',
+            category: a.category || 'Other',
+            purchase_date: a.purchase_date || new Date().toISOString().split('T')[0],
+            purchase_cost: Number(a.purchase_cost) || 0,
+            useful_life: Number(a.useful_life) || 1,
+            useful_life_unit: a.useful_life_unit === 'months' ? 'months' : 'years',
+            salvage_value: Number(a.salvage_value) || 0,
+            depreciation_method: a.depreciation_method || 'straight_line',
+            depreciation_start_date: a.depreciation_start_date || a.purchase_date,
+            notes: a.notes || '',
+            created_at: a.created_at,
+            updated_at: a.updated_at,
+          }));
+          setFixedAssets(mappedAssets);
+          try {
+            localStorage.setItem(`shohoj_bebsha_fixed_assets_${user.id}`, JSON.stringify(mappedAssets));
+          } catch {}
+        } else {
+          const cached = localStorage.getItem(`shohoj_bebsha_fixed_assets_${user.id}`);
+          if (cached) {
+            try {
+              setFixedAssets(JSON.parse(cached));
+            } catch {}
+          }
+        }
+      } catch {
+        const cached = localStorage.getItem(`shohoj_bebsha_fixed_assets_${user.id}`);
+        if (cached) {
+          try {
+            setFixedAssets(JSON.parse(cached));
+          } catch {}
+        }
       }
 
       try {
@@ -1418,6 +1568,326 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // ==================== Recurring Expense Operations (স্বয়ংক্রিয় নির্দিষ্ট খরচ) ====================
+  const addRecurringExpense = async (data: RecurringExpenseInput) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { error: 'Not authenticated' };
+
+    try {
+      const newRec: Record<string, any> = {
+        user_id: user.id,
+        title: data.title.trim(),
+        category: data.category,
+        amount: Number(data.amount) || 0,
+        frequency: data.frequency,
+        day_of_month: data.day_of_month ?? (data.frequency === 'monthly' ? 1 : null),
+        day_of_week: data.day_of_week ?? null,
+        execution_date: data.execution_date || new Date().toISOString().split('T')[0],
+        is_active: data.is_active ?? true,
+        notes: data.notes?.trim() || '',
+      };
+
+      let { data: saved, error } = await supabase
+        .from('recurring_expenses')
+        .insert(newRec)
+        .select()
+        .single();
+
+      if (error) {
+        // Fallback: create in local state with client ID if table not yet created
+        const fallbackId = `rec_${Date.now()}`;
+        const localRec: RecurringExpense = {
+          id: fallbackId,
+          user_id: user.id,
+          title: newRec.title,
+          category: newRec.category,
+          amount: newRec.amount,
+          frequency: newRec.frequency,
+          day_of_month: newRec.day_of_month,
+          day_of_week: newRec.day_of_week,
+          execution_date: newRec.execution_date,
+          is_active: newRec.is_active,
+          notes: newRec.notes,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        setRecurringExpenses((prev) => [localRec, ...prev]);
+
+        // Auto-check and trigger sync immediately for this new recurring rule
+        setTimeout(() => {
+          triggerRecurringExpensesSync();
+        }, 100);
+
+        return { error: null };
+      }
+
+      if (saved) {
+        setRecurringExpenses((prev) => [saved as RecurringExpense, ...prev]);
+        setTimeout(() => {
+          triggerRecurringExpensesSync();
+        }, 100);
+      }
+
+      return { error: null };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : 'Failed to add recurring expense' };
+    }
+  };
+
+  const updateRecurringExpense = async (id: string, data: Partial<RecurringExpenseInput | RecurringExpense>) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { error: 'Not authenticated' };
+
+    try {
+      const updatedFields: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (data.title !== undefined) updatedFields.title = data.title.trim();
+      if (data.category !== undefined) updatedFields.category = data.category;
+      if (data.amount !== undefined) updatedFields.amount = Number(data.amount);
+      if (data.frequency !== undefined) updatedFields.frequency = data.frequency;
+      if (data.day_of_month !== undefined) updatedFields.day_of_month = data.day_of_month;
+      if (data.day_of_week !== undefined) updatedFields.day_of_week = data.day_of_week;
+      if (data.execution_date !== undefined) updatedFields.execution_date = data.execution_date;
+      if (data.is_active !== undefined) updatedFields.is_active = data.is_active;
+      if (data.notes !== undefined) updatedFields.notes = data.notes?.trim() || '';
+
+      const { data: saved, error } = await supabase
+        .from('recurring_expenses')
+        .update(updatedFields)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        // Fallback update in state
+        setRecurringExpenses((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, ...updatedFields } : r))
+        );
+      } else if (saved) {
+        setRecurringExpenses((prev) =>
+          prev.map((r) => (r.id === id ? (saved as RecurringExpense) : r))
+        );
+      }
+
+      return { error: null };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : 'Failed to update recurring expense' };
+    }
+  };
+
+  const deleteRecurringExpense = async (id: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { error: 'Not authenticated' };
+
+    try {
+      const { error } = await supabase.from('recurring_expenses').delete().eq('id', id);
+      if (error) {
+        // Fallback remove from state
+        setRecurringExpenses((prev) => prev.filter((r) => r.id !== id));
+      } else {
+        setRecurringExpenses((prev) => prev.filter((r) => r.id !== id));
+      }
+      return { error: null };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : 'Failed to delete recurring expense' };
+    }
+  };
+
+  const triggerRecurringExpensesSync = async () => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { generatedCount: 0, error: 'Not authenticated' };
+
+    try {
+      const todayStr = formatYMD(new Date());
+      let generated = 0;
+
+      for (const rec of recurringExpenses) {
+        if (!rec.is_active) continue;
+        const dueItems = getDueExpensesForRecurring(rec, todayStr, expenses);
+        for (const item of dueItems) {
+          const res = await addExpense({
+            title: item.title,
+            category: item.category,
+            amount: item.amount,
+            expense_date: item.expense_date,
+            date: item.expense_date,
+            description: item.description,
+            recurring_expense_id: item.recurring_expense_id,
+            is_recurring_auto: true,
+          });
+          if (!res.error) {
+            generated++;
+          }
+        }
+      }
+
+      return { generatedCount: generated, error: null };
+    } catch (err: unknown) {
+      return { generatedCount: 0, error: err instanceof Error ? err.message : 'Sync failed' };
+    }
+  };
+
+  // ==================== Fixed Asset Operations (স্থায়ী সম্পদ ও অবচয়) ====================
+  const fixedAssetsSummary = useMemo(() => {
+    return calculateFixedAssetsSummary(fixedAssets);
+  }, [fixedAssets]);
+
+  const addFixedAsset = async (data: FixedAssetInput) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { error: 'Not authenticated' };
+
+    try {
+      const pCost = Math.max(0, Number(data.purchase_cost) || 0);
+      const sVal = Math.max(0, Number(data.salvage_value) || 0);
+      const uLife = Math.max(0.1, Number(data.useful_life) || 1);
+      const pDate = data.purchase_date || new Date().toISOString().split('T')[0];
+      const dStart = data.depreciation_start_date || pDate;
+
+      const newAssetPayload: Record<string, any> = {
+        user_id: user.id,
+        name: data.name.trim(),
+        category: data.category,
+        purchase_date: pDate,
+        purchase_cost: pCost,
+        useful_life: uLife,
+        useful_life_unit: data.useful_life_unit || 'years',
+        salvage_value: sVal,
+        depreciation_method: data.depreciation_method || 'straight_line',
+        depreciation_start_date: dStart,
+        notes: data.notes?.trim() || '',
+      };
+
+      let { data: saved, error } = await supabase
+        .from('fixed_assets')
+        .insert(newAssetPayload)
+        .select()
+        .single();
+
+      if (error) {
+        // Fallback: local storage
+        const fallbackId = `asset_${Date.now()}`;
+        const localAsset: FixedAsset = {
+          id: fallbackId,
+          user_id: user.id,
+          name: newAssetPayload.name,
+          category: newAssetPayload.category,
+          purchase_date: newAssetPayload.purchase_date,
+          purchase_cost: newAssetPayload.purchase_cost,
+          useful_life: newAssetPayload.useful_life,
+          useful_life_unit: newAssetPayload.useful_life_unit,
+          salvage_value: newAssetPayload.salvage_value,
+          depreciation_method: newAssetPayload.depreciation_method,
+          depreciation_start_date: newAssetPayload.depreciation_start_date,
+          notes: newAssetPayload.notes,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        setFixedAssets((prev) => {
+          const updated = [localAsset, ...prev];
+          try {
+            localStorage.setItem(`shohoj_bebsha_fixed_assets_${user.id}`, JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+        return { error: null };
+      }
+
+      if (saved) {
+        const item: FixedAsset = {
+          id: saved.id,
+          user_id: saved.user_id,
+          name: saved.name || saved.asset_name,
+          category: saved.category,
+          purchase_date: saved.purchase_date,
+          purchase_cost: Number(saved.purchase_cost) || 0,
+          useful_life: Number(saved.useful_life) || 1,
+          useful_life_unit: saved.useful_life_unit,
+          salvage_value: Number(saved.salvage_value) || 0,
+          depreciation_method: saved.depreciation_method,
+          depreciation_start_date: saved.depreciation_start_date,
+          notes: saved.notes || '',
+          created_at: saved.created_at,
+          updated_at: saved.updated_at,
+        };
+        setFixedAssets((prev) => {
+          const updated = [item, ...prev.filter((a) => a.id !== item.id)];
+          try {
+            localStorage.setItem(`shohoj_bebsha_fixed_assets_${user.id}`, JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+      }
+      return { error: null };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : 'Failed to add fixed asset' };
+    }
+  };
+
+  const updateFixedAsset = async (id: string, data: Partial<FixedAssetInput | FixedAsset>) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { error: 'Not authenticated' };
+
+    try {
+      const updatedFields: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (data.name !== undefined) updatedFields.name = data.name.trim();
+      if (data.category !== undefined) updatedFields.category = data.category;
+      if (data.purchase_date !== undefined) updatedFields.purchase_date = data.purchase_date;
+      if (data.purchase_cost !== undefined) updatedFields.purchase_cost = Math.max(0, Number(data.purchase_cost) || 0);
+      if (data.useful_life !== undefined) updatedFields.useful_life = Math.max(0.1, Number(data.useful_life) || 1);
+      if (data.useful_life_unit !== undefined) updatedFields.useful_life_unit = data.useful_life_unit;
+      if (data.salvage_value !== undefined) updatedFields.salvage_value = Math.max(0, Number(data.salvage_value) || 0);
+      if (data.depreciation_method !== undefined) updatedFields.depreciation_method = data.depreciation_method;
+      if (data.depreciation_start_date !== undefined) updatedFields.depreciation_start_date = data.depreciation_start_date;
+      if (data.notes !== undefined) updatedFields.notes = data.notes?.trim() || '';
+
+      await supabase
+        .from('fixed_assets')
+        .update(updatedFields)
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      setFixedAssets((prev) => {
+        const updated = prev.map((a) => (a.id === id ? { ...a, ...updatedFields } : a));
+        try {
+          localStorage.setItem(`shohoj_bebsha_fixed_assets_${user.id}`, JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      return { error: null };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : 'Failed to update fixed asset' };
+    }
+  };
+
+  const deleteFixedAsset = async (id: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { error: 'Not authenticated' };
+
+    try {
+      await supabase
+        .from('fixed_assets')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      setFixedAssets((prev) => {
+        const updated = prev.filter((a) => a.id !== id);
+        try {
+          localStorage.setItem(`shohoj_bebsha_fixed_assets_${user.id}`, JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      return { error: null };
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : 'Failed to delete fixed asset' };
+    }
+  };
+
   // ==================== PART 2: Supplier Operations ====================
   const addSupplier = async (supplierData: Omit<Supplier, 'id' | 'user_id' | 'created_at' | 'updated_at'>) => {
     const supabase = getSupabaseClient();
@@ -2170,8 +2640,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       totalPurchases,
       totalProductsCount: products.length,
       lowStockProductsCount: lowStockProducts.length,
+      grossFixedAssets: fixedAssetsSummary.totalGrossAssets,
+      accumulatedDepreciation: fixedAssetsSummary.totalAccumulatedDepreciation,
+      netFixedAssets: fixedAssetsSummary.totalNetBookValue,
+      monthlyDepreciation: fixedAssetsSummary.totalMonthlyDepreciation,
     };
-  }, [sales, expenses, purchases, products, customers, suppliers, customerPayments, supplierPayments, lowStockProducts]);
+  }, [sales, expenses, purchases, products, customers, suppliers, customerPayments, supplierPayments, lowStockProducts, fixedAssetsSummary]);
 
   return (
     <DataContext.Provider
@@ -2212,6 +2686,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addExpense,
         updateExpense,
         deleteExpense,
+        // Recurring Expenses actions
+        recurringExpenses,
+        addRecurringExpense,
+        updateRecurringExpense,
+        deleteRecurringExpense,
+        triggerRecurringExpensesSync,
+        // Fixed Assets actions
+        fixedAssets,
+        fixedAssetsSummary,
+        addFixedAsset,
+        updateFixedAsset,
+        deleteFixedAsset,
         // Part 2 actions
         addSupplier,
         updateSupplier,

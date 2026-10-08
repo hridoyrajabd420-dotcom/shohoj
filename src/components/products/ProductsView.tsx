@@ -3,12 +3,14 @@ import { useData } from '../../context/DataContext';
 import { Product } from '../../types';
 import { formatCurrency } from '../../lib/formatters';
 import { ProductFormModal } from './ProductFormModal';
+import { QuickAddStockModal } from './QuickAddStockModal';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { useToast } from '../../context/ToastContext';
 import {
   Package,
   Search,
   Plus,
+  PlusCircle,
   Edit2,
   Trash2,
   AlertTriangle,
@@ -35,6 +37,7 @@ export const ProductsView: React.FC<ProductsViewProps> = () => {
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [productForStock, setProductForStock] = useState<Product | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
 
@@ -522,9 +525,19 @@ create policy "Users can delete own products" on public.products for delete usin
                         )}
                       </td>
 
-                      {/* Actions: Edit & Delete (Requirements 2 & 3) */}
+                      {/* Actions: Add Stock, Edit & Delete */}
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setProductForStock(p)}
+                            className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer group flex items-center gap-1"
+                            title="স্টক যোগ করুন (+ Add Stock)"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span className="sr-only sm:not-sr-only text-[11px] font-bold hidden xl:inline">
+                              + স্টক
+                            </span>
+                          </button>
                           <button
                             onClick={() => handleEdit(p)}
                             className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
@@ -575,6 +588,13 @@ create policy "Users can delete own products" on public.products for delete usin
           setProductToEdit(null);
         }}
         productToEdit={productToEdit}
+      />
+
+      {/* Quick Add Stock Modal */}
+      <QuickAddStockModal
+        isOpen={Boolean(productForStock)}
+        onClose={() => setProductForStock(null)}
+        product={productForStock}
       />
 
       {/* Delete Confirmation Dialog (Requirement 3) */}

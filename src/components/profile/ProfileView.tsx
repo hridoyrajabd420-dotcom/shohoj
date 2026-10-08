@@ -11,21 +11,24 @@ import {
   Briefcase,
   Check,
   ShieldCheck,
-  Sparkles,
-  Clock,
-  AlertCircle,
-  Calendar,
+  Building2,
+  FileText,
+  MapPin,
 } from 'lucide-react';
 
 export const ProfileView: React.FC = () => {
   const { profile, user, updateProfile } = useAuth();
-  const { proAccess, subscription } = useData();
+  const { businessSettings, updateBusinessSettings } = useData();
   const { showToast } = useToast();
 
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [businessType, setBusinessType] = useState(BUSINESS_TYPES[0]);
+  const [address, setAddress] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [invoiceFooter, setInvoiceFooter] = useState('');
+  const [currencySymbol, setCurrencySymbol] = useState('৳');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -36,7 +39,13 @@ export const ProfileView: React.FC = () => {
       setBusinessName(profile.business_name || '');
       setBusinessType(profile.business_type || BUSINESS_TYPES[0]);
     }
-  }, [profile]);
+    if (businessSettings) {
+      setAddress((businessSettings as any).address || '');
+      setLogoUrl(businessSettings.logo_url || '');
+      setInvoiceFooter(businessSettings.invoice_footer || '');
+      setCurrencySymbol(businessSettings.currency_symbol || '৳');
+    }
+  }, [profile, businessSettings]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,18 +57,29 @@ export const ProfileView: React.FC = () => {
     }
 
     setLoading(true);
-    const { error } = await updateProfile({
+
+    const profileRes = await updateProfile({
       full_name: fullName.trim(),
       phone: phone.trim(),
       business_name: businessName.trim(),
       business_type: businessType,
     });
+
+    const settingsRes = await updateBusinessSettings({
+      logo_url: logoUrl.trim(),
+      invoice_footer: invoiceFooter.trim(),
+      currency_symbol: currencySymbol.trim(),
+      ...({ address: address.trim(), business_name: businessName.trim(), phone: phone.trim() } as any),
+    });
+
     setLoading(false);
 
-    if (error) {
-      setErrorMsg(error);
+    if (profileRes.error) {
+      setErrorMsg(profileRes.error);
+    } else if (settingsRes.error) {
+      setErrorMsg(settingsRes.error);
     } else {
-      showToast('প্রোফাইল তথ্য সফলভাবে আপডেট হয়েছে', 'success');
+      showToast('প্রোফাইল ও ব্যবসার তথ্য সফলভাবে সংরক্ষিত হয়েছে', 'success');
     }
   };
 
@@ -68,14 +88,14 @@ export const ProfileView: React.FC = () => {
       {/* Header */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-          ব্যবহারকারী ও ব্যবসার প্রোফাইল (User Profile)
+          ব্যবহারকারী ও ব্যবসার প্রোফাইল (Business Settings)
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 mt-1">
-          আপনার ব্যবসার বিবরণ, যোগাযোগের তথ্য এবং প্রোফাইল সংশোধন করুন
+          আপনার ব্যবসার বিবরণ, যোগাযোগের তথ্য, ইনভয়েস নোট ও ব্র্যান্ডিং সেট করুন (সম্পূর্ণ বিনামূল্যে)
         </p>
       </div>
 
-      {/* Main Profile Form */}
+      {/* Main Profile & Business Settings Form */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-6">
         <form onSubmit={handleSubmit} className="space-y-4">
           {errorMsg && (
@@ -104,10 +124,10 @@ export const ProfileView: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Full Name */}
+            {/* Full Name / Owner */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                আপনার পূর্ণ নাম (Full Name) *
+                মালিকের নাম (Owner Name) *
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -151,7 +171,7 @@ export const ProfileView: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="আপনার দোকানের বা প্রতিষ্ঠানের নাম"
+                  placeholder="দোকান বা প্রতিষ্ঠানের নাম"
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                   className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
@@ -181,6 +201,73 @@ export const ProfileView: React.FC = () => {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Business Address */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                ব্যবসার ঠিকানা (Address)
+              </label>
+              <div className="relative">
+                <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="যেমন: দোকান নং ১২, নিউ মার্কেট, ঢাকা"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                />
+              </div>
+            </div>
+
+            {/* Currency */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                মুদ্রা প্রতীক (Currency)
+              </label>
+              <input
+                type="text"
+                placeholder="৳"
+                value={currencySymbol}
+                onChange={(e) => setCurrencySymbol(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+              />
+            </div>
+          </div>
+
+          {/* Business Logo URL */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              ব্যবসার লোগো লিংক (Logo Image URL - Optional)
+            </label>
+            <input
+              type="url"
+              placeholder="https://example.com/logo.png"
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+            />
+            <p className="text-[10px] text-slate-400 mt-1">
+              ইনভয়েস ও রসিদে এই লোগোটি স্বয়ংক্রিয়ভাবে যুক্ত হবে।
+            </p>
+          </div>
+
+          {/* Invoice Notes / Footer */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              ইনভয়েস পাদটীকা / নোট (Invoice Footer / Terms)
+            </label>
+            <div className="relative">
+              <FileText className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <textarea
+                rows={2}
+                placeholder="ধন্যবাদ! বিক্রিত পণ্য ফেরতযোগ্য নহে।"
+                value={invoiceFooter}
+                onChange={(e) => setInvoiceFooter(e.target.value)}
+                className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+              />
+            </div>
+          </div>
+
           <div className="pt-4 flex items-center justify-between border-t border-slate-100">
             <div className="flex items-center gap-1.5 text-xs text-slate-500">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
@@ -190,14 +277,14 @@ export const ProfileView: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 disabled:opacity-50"
+              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
             >
               {loading ? (
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
                   <Check className="w-4 h-4" />
-                  <span>প্রোফাইল আপডেট করুন (Save Changes)</span>
+                  <span>সংরক্ষণ করুন (Save Changes)</span>
                 </>
               )}
             </button>
@@ -205,67 +292,20 @@ export const ProfileView: React.FC = () => {
         </form>
       </div>
 
-      {/* Subscription Details Card (Part 2 Feature 1) */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">সাবস্ক্রিপশন ও মেম্বারশিপ স্ট্যাটাস</h3>
-              <p className="text-[11px] text-slate-500">অ্যাকাউন্টের প্ল্যান, মেয়াদ ও এক্সেস স্তর</p>
-            </div>
+      {/* Account Status Card */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+            <Building2 className="w-4 h-4" />
           </div>
-
           <div>
-            {proAccess.isProActive ? (
-              <span className="px-3 py-1 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-xs rounded-full shadow-xs flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5" /> PRO ACTIVE
-              </span>
-            ) : proAccess.hasExpired ? (
-              <span className="px-3 py-1 bg-rose-100 text-rose-800 font-bold text-xs rounded-full flex items-center gap-1 border border-rose-200">
-                <AlertCircle className="w-3.5 h-3.5" /> EXPIRED PRO
-              </span>
-            ) : (
-              <span className="px-3 py-1 bg-slate-100 text-slate-700 font-bold text-xs rounded-full border border-slate-200">
-                FREE সাধারণ প্ল্যান
-              </span>
-            )}
+            <h3 className="text-sm font-bold text-slate-900">অ্যাকাউন্ট স্ট্যাটাস</h3>
+            <p className="text-[11px] text-slate-500">সহজ ব্যবসার সকল প্রিমিয়াম ফিচার আপনার জন্য উন্মুক্ত</p>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200/80 text-xs">
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">প্ল্যানের ধরন</span>
-            <span className="font-bold text-slate-800 uppercase">{proAccess.effectivePlan}</span>
-          </div>
-
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">স্ট্যাটাস</span>
-            <span className={`font-bold capitalize ${proAccess.isProActive ? 'text-emerald-700' : 'text-slate-700'}`}>
-              {proAccess.status}
-            </span>
-          </div>
-
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">মেয়াদ উত্তীর্ণের তারিখ</span>
-            <span className="font-bold text-slate-800">
-              {proAccess.expiresAt
-                ? new Date(proAccess.expiresAt).toLocaleDateString('bn-BD')
-                : 'আনলিমিটেড / প্রযোজ্য নয়'}
-            </span>
-          </div>
-        </div>
-
-        {proAccess.hasExpired && (
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <span>
-              আপনার প্রো প্ল্যানের মেয়াদ শেষ হয়েছে। মেম্বারশিপ সক্রিয় না থাকায় অ্যাকাউন্টটি বর্তমানে Free ফিচারগুলো ব্যবহার করছে।
-            </span>
-          </div>
-        )}
+        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 font-bold text-xs rounded-full border border-emerald-200">
+          সম্পূর্ণ বিনামূল্যে সক্রিয় (Free & Unrestricted)
+        </span>
       </div>
     </div>
   );

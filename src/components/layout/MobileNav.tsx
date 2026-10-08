@@ -13,8 +13,6 @@ import {
   LogOut,
   X,
   Store,
-  Lock,
-  Sparkles,
   DollarSign,
   Truck,
   CreditCard,
@@ -22,7 +20,7 @@ import {
   FileSpreadsheet,
   TrendingUp,
   Calculator,
-  ArrowRight,
+  Landmark,
 } from 'lucide-react';
 
 interface MobileNavProps {
@@ -39,16 +37,14 @@ export const MobileNav: React.FC<MobileNavProps> = ({
   onClose,
 }) => {
   const { profile, signOut } = useAuth();
-  const { lowStockProducts, proAccess } = useData();
-
-  const isPro = proAccess.isProActive;
+  const { lowStockProducts } = useData();
 
   const handleSelect = (tab: ViewTab) => {
     setCurrentTab(tab);
     onClose();
   };
 
-  const freeNavItems = [
+  const coreNavItems = [
     { id: 'dashboard' as ViewTab, labelBn: 'ড্যাশবোর্ড', icon: LayoutDashboard },
     {
       id: 'products' as ViewTab,
@@ -61,18 +57,19 @@ export const MobileNav: React.FC<MobileNavProps> = ({
     { id: 'customers' as ViewTab, labelBn: 'গ্রাহক ও বাকি', icon: Users },
   ];
 
-  const proNavItems = [
+  const businessNavItems = [
     { id: 'financials' as ViewTab, labelBn: 'লাভ-ক্ষতি (P&L)', icon: DollarSign },
-    { id: 'inventory_pro' as ViewTab, labelBn: 'ইনভেন্টরি প্রো ও ক্রয়', icon: Truck },
+    { id: 'fixed_assets' as ViewTab, labelBn: 'স্থায়ী সম্পদ ও অবচয়', icon: Landmark },
+    { id: 'inventory_pro' as ViewTab, labelBn: 'ইনভেন্টরি ও ক্রয়', icon: Truck },
     { id: 'payables' as ViewTab, labelBn: 'বকেয়া ও দেনা খাতা', icon: CreditCard },
     { id: 'invoices' as ViewTab, labelBn: 'ইনভয়েস ও কোটেশন', icon: FileText },
-    { id: 'reports' as ViewTab, labelBn: 'অ্যাডভান্সড রিপোর্ট', icon: FileSpreadsheet },
-    { id: 'analytics' as ViewTab, labelBn: 'অ্যানালিটিক্স ও ইনসাইটস', icon: TrendingUp },
+    { id: 'reports' as ViewTab, labelBn: 'রিপোর্ট ও এক্সপোর্ট', icon: FileSpreadsheet },
+    { id: 'analytics' as ViewTab, labelBn: 'অ্যানালিটিক্স', icon: TrendingUp },
     { id: 'calculators' as ViewTab, labelBn: 'ব্যবসায়িক ক্যালকুলেটর', icon: Calculator },
   ];
 
   const systemNavItems = [
-    { id: 'profile' as ViewTab, labelBn: 'প্রোফাইল', icon: UserCheck },
+    { id: 'profile' as ViewTab, labelBn: 'প্রোফাইল ও ব্যবসা', icon: UserCheck },
     { id: 'settings' as ViewTab, labelBn: 'সেটিংস', icon: Settings },
   ];
 
@@ -89,14 +86,14 @@ export const MobileNav: React.FC<MobileNavProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="overflow-y-auto flex-1">
-              {/* Drawer Header */}
+              {/* Header */}
               <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
                     সহ
                   </div>
                   <div>
-                    <h2 className="font-bold text-sm text-slate-900">সহজ ব্যবসা</h2>
+                    <h3 className="font-bold text-sm text-slate-900">সহজ ব্যবসা</h3>
                     <p className="text-[10px] text-slate-500">Shohoj Bebsha</p>
                   </div>
                 </div>
@@ -117,27 +114,18 @@ export const MobileNav: React.FC<MobileNavProps> = ({
                     <p className="text-[10px] text-slate-500 truncate">{profile?.business_type || 'Retail'}</p>
                   </div>
                 </div>
-                {isPro ? (
-                  <span className="text-[10px] font-black bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full">
-                    PRO
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => handleSelect('pro_upgrade')}
-                    className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full"
-                  >
-                    FREE
-                  </button>
-                )}
+                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                  সক্রিয়
+                </span>
               </div>
 
-              {/* Free Nav items */}
+              {/* Core Nav items */}
               <div className="px-2 pt-2 pb-1">
                 <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                  মৌলিক মেনু (Core MVP)
+                  দৈনিক মেনু
                 </span>
                 <div className="space-y-0.5">
-                  {freeNavItems.map((item) => {
+                  {coreNavItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = currentTab === item.id;
                     return (
@@ -159,6 +147,35 @@ export const MobileNav: React.FC<MobileNavProps> = ({
                             {item.badge}
                           </span>
                         )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Business & Financial Nav items */}
+              <div className="px-2 pt-2 pb-1 border-t border-slate-100">
+                <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  হিসাব ও রিপোর্ট
+                </span>
+                <div className="space-y-0.5">
+                  {businessNavItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = currentTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => handleSelect(item.id)}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
+                          isActive
+                            ? 'bg-emerald-600 text-white font-semibold'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Icon className="w-4 h-4" />
+                          <span>{item.labelBn}</span>
+                        </div>
                       </button>
                     );
                   })}
@@ -213,8 +230,8 @@ export const MobileNav: React.FC<MobileNavProps> = ({
           { id: 'dashboard' as ViewTab, labelBn: 'ড্যাশবোর্ড', icon: LayoutDashboard },
           { id: 'products' as ViewTab, labelBn: 'পণ্য', icon: Package },
           { id: 'sales' as ViewTab, labelBn: 'বিক্রয়', icon: ShoppingCart },
-          { id: 'financials' as ViewTab, labelBn: 'লাভ-ক্ষতি', icon: DollarSign, isProOnly: true },
-          { id: 'pro_upgrade' as ViewTab, labelBn: isPro ? 'প্রো' : 'আপগ্রেড', icon: Sparkles },
+          { id: 'expenses' as ViewTab, labelBn: 'খরচ', icon: Receipt },
+          { id: 'reports' as ViewTab, labelBn: 'রিপোর্ট', icon: FileSpreadsheet },
         ].map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
@@ -228,9 +245,6 @@ export const MobileNav: React.FC<MobileNavProps> = ({
             >
               <Icon className={`w-4 h-4 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />
               <span className="text-[9px] mt-0.5">{item.labelBn}</span>
-              {item.isProOnly && !isPro && (
-                <span className="absolute top-0.5 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" />
-              )}
             </button>
           );
         })}

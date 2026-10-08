@@ -4,6 +4,10 @@ import { useAuth } from '../../context/AuthContext';
 import { Sale } from '../../types';
 import { formatCurrency, formatDate } from '../../lib/formatters';
 import { generateInvoiceHtml } from '../../lib/pdfInvoiceGenerator';
+import { DateRangePreset, getDateRangeFromPreset, isDateInRange, DATE_PRESETS } from '../../lib/dateRangeUtils';
+import { DateRangeFilterBar } from '../common/DateRangeFilterBar';
+import { DynamicProfitSummaryCards, DynamicProfitSummaryMetrics } from '../common/DynamicProfitSummaryCards';
+import { PeriodClosingModal } from '../common/PeriodClosingModal';
 import { SaleFormModal } from './SaleFormModal';
 import { SaleDetailsModal } from './SaleDetailsModal';
 import { ConfirmDialog } from '../common/ConfirmDialog';
@@ -21,22 +25,32 @@ import {
   ArrowUpRight,
   Receipt,
   Download,
+  FileCheck2,
 } from 'lucide-react';
 
 export const SalesView: React.FC = () => {
-  const { sales, products, customers, deleteSale, loading, businessSettings } = useData();
+  const { sales, expenses, products, customers, deleteSale, loading, businessSettings } = useData();
   const { profile } = useAuth();
   const { showToast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'due'>('all');
+
+  // Unified Date Filter
+  const [datePreset, setDatePreset] = useState<DateRangePreset>('this_month');
+  const initialRange = useMemo(() => getDateRangeFromPreset('this_month'), []);
+  const [startDate, setStartDate] = useState<string>(initialRange.startDate);
+  const [endDate, setEndDate] = useState<string>(initialRange.endDate);
+
+  // Modals
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [saleToEdit, setSaleToEdit] = useState<Sale | null>(null);
   const [saleForDetails, setSaleForDetails] = useState<Sale | null>(null);
   const [saleToDelete, setSaleToDelete] = useState<Sale | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [isPeriodClosingModalOpen, setIsPeriodClosingModalOpen] = useState(false);
 
-  // Filtered sales
+  // Filtered sales matching search, status filter, and unified date range
   const filteredSales = useMemo(() => {
     return sales.filter((s) => {
       const prod = products.find((p) => p.id === s.product_id);
@@ -54,45 +68,67 @@ export const SalesView: React.FC = () => {
         matchesStatus = s.payment_status === statusFilter;
       }
 
-      return matchesSearch && matchesStatus;
+      const matchesDate = isDateInRange(s.sale_date, startDate, endDate);
+
+      return matchesSearch && matchesStatus && matchesDate;
     });
-  }, [sales, products, customers, searchQuery, statusFilter]);
+  }, [sales, products, customers, searchQuery, statusFilter, startDate, endDate]);
 
-  // Sales totals
-  const totalSalesAmount = useMemo(() => {
-    return sales.reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
-  }, [sales]);
+  // Product price map for COGS
+  const productPriceMap = useMemo(() => {
+    const map = new Map<string, number>();
+    products.forEach((p) => map.set(p.id, Number(p.purchase_price || 0)));
+    return map;
+  }, [products]);
 
-  const totalPaidAmount = useMemo(() => {
-    return sales.reduce((acc, s) => {
-      if (s.paid_amount !== undefined) {
-        return acc + Number(s.paid_amount);
-      }
+  // Filtered expenses in the same date range for dynamic net profit calculation
+  const periodExpenses = useMemo(() => {
+    return expenses.filter((e) => isDateInRange(e.expense_date || e.date, startDate, endDate));
+  }, [expenses, startDate, endDate]);
+
+  // Dynamic Metrics for summary cards & period closing
+  const periodMetrics: DynamicProfitSummaryMetrics = useMemo(() => {
+    const totalSales = filteredSales.reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
+
+    const cashReceived = filteredSales.reduce((acc, s) => {
+      if (s.paid_amount !== undefined) return acc + Number(s.paid_amount);
       return acc + (s.payment_status === 'paid' ? Number(s.total_amount || 0) : 0);
     }, 0);
-  }, [sales]);
 
-  const totalDueAmount = useMemo(() => {
-    return sales.reduce((acc, s) => {
-      if (s.due_amount !== undefined) {
-        return acc + Number(s.due_amount);
-      }
+    const totalDue = filteredSales.reduce((acc, s) => {
+      if (s.due_amount !== undefined) return acc + Number(s.due_amount);
       return acc + (s.payment_status === 'due' ? Number(s.total_amount || 0) : 0);
     }, 0);
-  }, [sales]);
 
-  const handleDeleteConfirm = async () => {
-    if (!saleToDelete) return;
-    setDeleteLoading(true);
-    const { error } = await deleteSale(saleToDelete.id);
-    setDeleteLoading(false);
-    if (error) {
-      showToast(error, 'error');
-    } else {
-      showToast('বিক্রয় রেকর্ড সফলভাবে ডিলিট ও স্টক পুনরুদ্ধার করা হয়েছে', 'success');
-      setSaleToDelete(null);
-    }
-  };
+    let cogs = 0;
+    filteredSales.forEach((s) => {
+      if (s.product_id && productPriceMap.has(s.product_id)) {
+        cogs += Number(s.quantity || 0) * (productPriceMap.get(s.product_id) || 0);
+      }
+    });
+
+    const totalExpenses = periodExpenses.reduce((acc, e) => acc + Number(e.amount || 0), 0);
+
+    const recurringExpensesTotal = periodExpenses
+      .filter((e) => e.is_recurring_auto || Boolean(e.recurring_expense_id))
+      .reduce((acc, e) => acc + Number(e.amount || 0), 0);
+
+    const grossProfit = totalSales - cogs;
+    const netProfit = grossProfit - totalExpenses;
+
+    return {
+      totalSales,
+      totalExpenses,
+      cogs,
+      grossProfit,
+      netProfit,
+      cashReceived,
+      totalDue,
+      salesCount: filteredSales.length,
+      expensesCount: periodExpenses.length,
+      recurringExpensesTotal,
+    };
+  }, [filteredSales, periodExpenses, productPriceMap]);
 
   const handleOpenEdit = (sale: Sale) => {
     setSaleToEdit(sale);
@@ -103,23 +139,57 @@ export const SalesView: React.FC = () => {
     setSaleForDetails(sale);
   };
 
+  const handleDeleteConfirm = async () => {
+    if (!saleToDelete) return;
+    setDeleteLoading(true);
+    const { error } = await deleteSale(saleToDelete.id);
+    setDeleteLoading(false);
+    if (error) {
+      showToast(error, 'error');
+    } else {
+      showToast('বিক্রয় রেকর্ড সফলভাবে মুছে ফেলা হয়েছে এবং স্টক পুনরুদ্ধার করা হয়েছে', 'success');
+      setSaleToDelete(null);
+    }
+  };
+
+  const handleDatePresetChange = (preset: DateRangePreset, start: string, end: string) => {
+    setDatePreset(preset);
+    setStartDate(start);
+    setEndDate(end);
+  };
+
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    const range = getDateRangeFromPreset('this_month');
+    setDatePreset('this_month');
+    setStartDate(range.startDate);
+    setEndDate(range.endDate);
+  };
+
+  const periodLabelName = useMemo(() => {
+    const found = DATE_PRESETS.find((p) => p.key === datePreset);
+    return found ? `${found.labelBn} (${found.labelEn})` : 'নির্বাচিত সময়';
+  }, [datePreset]);
+
   return (
     <div className="space-y-6 pb-12">
-      {/* Header */}
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-            <span>বিক্রয় ও ট্রানজ্যাকশন খাতা (Sales)</span>
+            <span>বিক্রয় ও অর্ডার ব্যবস্থাপনা (Sales & Orders)</span>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700">
-              {sales.length}টি বিক্রয়
+              {sales.length}টি ট্রানজ্যাকশন
             </span>
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            দৈনিক বিক্রয় এন্ট্রি, স্টক হ্রাস, বকেয়া হিসাব ও ডিজিটাল রসিদ
+            গ্রাহকের কাছে পণ্য বিক্রয়, ক্যাশ মেমো, পরিশোধিত ও বকেয়া টাকার বিস্তারিত হিসাব
           </p>
         </div>
 
         <button
+          type="button"
           onClick={() => {
             setSaleToEdit(null);
             setIsFormModalOpen(true);
@@ -131,24 +201,33 @@ export const SalesView: React.FC = () => {
         </button>
       </div>
 
-      {/* Mini Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-          <span className="text-xs text-slate-500 font-semibold">সর্বমোট বিক্রয় (Total Sales)</span>
-          <p className="text-xl font-extrabold text-slate-900 mt-1">{formatCurrency(totalSalesAmount)}</p>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">{sales.length}টি ট্রানজ্যাকশন</span>
-        </div>
-        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-          <span className="text-xs text-emerald-600 font-semibold">নগদ আদায়কৃত (Cash Received)</span>
-          <p className="text-xl font-extrabold text-emerald-700 mt-1">{formatCurrency(totalPaidAmount)}</p>
-          <span className="text-[11px] text-emerald-600/80 mt-0.5 block">পরিশোধিত অর্থ</span>
-        </div>
-        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-          <span className="text-xs text-rose-600 font-semibold">মোট বকেয়া (Total Due)</span>
-          <p className="text-xl font-extrabold text-rose-600 mt-1">{formatCurrency(totalDueAmount)}</p>
-          <span className="text-[11px] text-rose-500/80 mt-0.5 block">বাকি পাওনা অর্থ</span>
-        </div>
-      </div>
+      {/* Unified Date Range Filter Bar with Period Closing Button */}
+      <DateRangeFilterBar
+        preset={datePreset}
+        startDate={startDate}
+        endDate={endDate}
+        onPresetChange={handleDatePresetChange}
+        onStartDateChange={setStartDate}
+        onEndDateChange={setEndDate}
+        onReset={handleResetFilters}
+        extraRightAction={
+          <button
+            type="button"
+            onClick={() => setIsPeriodClosingModalOpen(true)}
+            className="px-4 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+            title="নির্বাচিত সময়কালের সমাপ্তি হিসাব ও সমন্বিত লাভ-ক্ষতি ক্লোজ করুন"
+          >
+            <FileCheck2 className="w-4 h-4 text-emerald-400" />
+            <span>হিসাব ক্লোজ করুন (Close Period)</span>
+          </button>
+        }
+      />
+
+      {/* Dynamic Automated Summary Cards: Sales, COGS, Expenses, Net Profit, Cash Received & Due */}
+      <DynamicProfitSummaryCards
+        metrics={periodMetrics}
+        periodLabel={periodLabelName}
+      />
 
       {/* Filter and Search */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -166,6 +245,7 @@ export const SalesView: React.FC = () => {
         <div className="inline-flex items-center bg-white p-1 rounded-xl border border-slate-200 shadow-xs text-xs font-medium">
           <Filter className="w-3.5 h-3.5 text-slate-400 ml-2 mr-1" />
           <button
+            type="button"
             onClick={() => setStatusFilter('all')}
             className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
               statusFilter === 'all'
@@ -176,6 +256,7 @@ export const SalesView: React.FC = () => {
             সব ({sales.length})
           </button>
           <button
+            type="button"
             onClick={() => setStatusFilter('paid')}
             className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
               statusFilter === 'paid'
@@ -186,6 +267,7 @@ export const SalesView: React.FC = () => {
             পরিশোধিত (Paid)
           </button>
           <button
+            type="button"
             onClick={() => setStatusFilter('due')}
             className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
               statusFilter === 'due'
@@ -211,11 +293,12 @@ export const SalesView: React.FC = () => {
           </div>
           <h3 className="text-sm font-bold text-slate-800">কোনো বিক্রয় পাওয়া যায়নি</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            {searchQuery
-              ? 'অনুসন্ধানের সাথে মিল রয়েছে এমন কোনো বিক্রয় মেলেনি।'
+            {searchQuery || statusFilter !== 'all' || startDate || endDate
+              ? 'নির্বাচিত ফিল্টারের সাথে মিল রয়েছে এমন কোনো বিক্রয় মেলেনি।'
               : 'এখনো কোনো বিক্রয় রেকর্ড করা হয়নি। প্রথম বিক্রয় রেকর্ড করুন।'}
           </p>
           <button
+            type="button"
             onClick={() => {
               setSaleToEdit(null);
               setIsFormModalOpen(true);
@@ -250,73 +333,47 @@ export const SalesView: React.FC = () => {
                   const dueVal = sale.due_amount !== undefined
                     ? Number(sale.due_amount)
                     : (sale.payment_status === 'due' ? Number(sale.total_amount) : 0);
-                  const isPaid = dueVal <= 0;
+
+                  const isPaid = dueVal <= 0 || sale.payment_status === 'paid';
 
                   return (
-                    <tr
-                      key={sale.id}
-                      className="hover:bg-slate-50/70 transition-colors group cursor-pointer"
-                      onClick={() => handleOpenDetails(sale)}
-                    >
+                    <tr key={sale.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="px-5 py-3.5 text-slate-600 font-medium whitespace-nowrap">
                         {formatDate(sale.sale_date)}
                       </td>
-                      <td className="px-4 py-3.5">
-                        <div className="font-bold text-slate-900 group-hover:text-emerald-700 transition-colors">
-                          {prod ? (prod.product_name || prod.name) : 'অজানা পণ্য'}
-                        </div>
-                        {prod?.sku && (
-                          <div className="text-[10px] text-slate-400 font-mono">SKU: {prod.sku}</div>
-                        )}
+                      <td className="px-4 py-3.5 font-bold text-slate-900 max-w-[200px] truncate">
+                        {prod ? prod.product_name || prod.name : 'Unknown Product'}
                       </td>
-                      <td className="px-4 py-3.5">
-                        {cust ? (
-                          <div>
-                            <span className="font-semibold text-slate-800">{cust.name}</span>
-                            {cust.phone && (
-                              <p className="text-[10px] text-slate-400">{cust.phone}</p>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 italic">সরাসরি ক্রেতা (Cash)</span>
-                        )}
+                      <td className="px-4 py-3.5 text-slate-700">
+                        {cust ? cust.name : <span className="text-slate-400 italic">সরাসরি ক্রেতা</span>}
                       </td>
-                      <td className="px-4 py-3.5 font-bold text-slate-800">
-                        {sale.quantity} {prod?.unit || 'টি'}
+                      <td className="px-4 py-3.5 text-slate-700 font-medium">
+                        {sale.quantity} {prod?.unit || 'pcs'}
                       </td>
-                      <td className="px-4 py-3.5 text-slate-600 font-medium">
+                      <td className="px-4 py-3.5 text-slate-700 font-medium">
                         {formatCurrency(sale.selling_price)}
                       </td>
-                      <td className="px-4 py-3.5">
-                        <div className="font-black text-slate-900">{formatCurrency(sale.total_amount)}</div>
-                        {sale.discount && sale.discount > 0 ? (
-                          <div className="text-[10px] text-emerald-600 font-medium">
-                            ছাড়: {formatCurrency(sale.discount)}
-                          </div>
-                        ) : null}
+                      <td className="px-4 py-3.5 font-extrabold text-slate-900">
+                        {formatCurrency(sale.total_amount)}
                       </td>
                       <td className="px-4 py-3.5">
                         {isPaid ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <CheckCircle2 className="w-3 h-3" />
                             <span>পরিশোধিত</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
                             <Clock className="w-3 h-3" />
-                            <span>বাকি: {formatCurrency(dueVal)}</span>
+                            <span>বকেয়া: {formatCurrency(dueVal)}</span>
                           </span>
                         )}
                       </td>
-                      <td
-                        className="px-5 py-3.5 text-right"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
+                            type="button"
                             onClick={() => {
-                              const prod = products.find((p) => p.id === sale.product_id);
-                              const cust = customers.find((c) => c.id === sale.customer_id);
                               const html = generateInvoiceHtml({
                                 sale,
                                 product: prod,
@@ -324,36 +381,38 @@ export const SalesView: React.FC = () => {
                                 profile,
                                 businessSettings,
                               });
-                              const printWin = window.open('', '_blank');
-                              if (printWin) {
-                                printWin.document.open();
-                                printWin.document.write(html);
-                                printWin.document.close();
+                              const printWindow = window.open('', '_blank');
+                              if (printWindow) {
+                                printWindow.document.write(html);
+                                printWindow.document.close();
                               }
                             }}
                             className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                            title="PDF ইনভয়েস ডাউনলোড / প্রিন্ট (PDF Invoice)"
+                            title="ইনভয়েস ডাউনলোড / প্রিন্ট (Invoice)"
                           >
-                            <Download className="w-4 h-4" />
+                            <Download className="w-4 h-4 text-emerald-600" />
                           </button>
                           <button
+                            type="button"
                             onClick={() => handleOpenDetails(sale)}
                             className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                            title="রসিদ ও বিবরণ দেখুন (View Details)"
+                            title="রসিদ ও বিস্তারিত দেখুন"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
+                            type="button"
                             onClick={() => handleOpenEdit(sale)}
                             className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                            title="বিক্রয় রেকর্ড এডিট করুন (Edit)"
+                            title="বিক্রয় এডিট করুন"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
+                            type="button"
                             onClick={() => setSaleToDelete(sale)}
                             className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            title="বিক্রয় রেকর্ড মুছুন (Delete)"
+                            title="বিক্রয় রেকর্ড মুছুন"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -363,12 +422,25 @@ export const SalesView: React.FC = () => {
                   );
                 })}
               </tbody>
+              <tfoot className="bg-slate-50 border-t border-slate-200 text-xs font-bold">
+                <tr>
+                  <td colSpan={5} className="px-5 py-3 text-slate-600 text-right">
+                    তালিকায় প্রদর্শিত মোট বিক্রয়:
+                  </td>
+                  <td className="px-4 py-3 text-slate-900 font-black text-sm">
+                    {formatCurrency(periodMetrics.totalSales)}
+                  </td>
+                  <td colSpan={2} className="px-5 py-3 text-slate-500">
+                    আদায়: {formatCurrency(periodMetrics.cashReceived)} | বাকি: {formatCurrency(periodMetrics.totalDue)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
       )}
 
-      {/* Sale Form Modal */}
+      {/* Sale Form Modal (Create / Edit) */}
       <SaleFormModal
         isOpen={isFormModalOpen}
         saleToEdit={saleToEdit}
@@ -393,6 +465,16 @@ export const SalesView: React.FC = () => {
           setSaleToDelete(s);
         }}
         onClose={() => setSaleForDetails(null)}
+      />
+
+      {/* Accounting Period Closing Modal */}
+      <PeriodClosingModal
+        isOpen={isPeriodClosingModalOpen}
+        onClose={() => setIsPeriodClosingModalOpen(false)}
+        metrics={periodMetrics}
+        startDate={startDate}
+        endDate={endDate}
+        periodName={periodLabelName}
       />
 
       {/* Delete Sale Confirm Dialog */}

@@ -1654,4 +1654,51 @@ $$;
 
 grant execute on function public.record_stock_adjustment_transaction to authenticated;
 
+-- ==============================================================================
+-- FIXED ASSETS & CAPEX MODULE (স্থায়ী সম্পদ ও অবচয়)
+-- ==============================================================================
+
+create table if not exists public.fixed_assets (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users(id) on delete cascade not null,
+  name text not null,
+  category text not null default 'Other',
+  purchase_date date not null default current_date,
+  purchase_cost numeric not null default 0,
+  useful_life numeric not null default 1,
+  useful_life_unit text not null default 'years',
+  salvage_value numeric not null default 0,
+  depreciation_method text not null default 'straight_line',
+  depreciation_start_date date default current_date,
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.fixed_assets enable row level security;
+
+drop policy if exists "Users can view own fixed_assets" on public.fixed_assets;
+create policy "Users can view own fixed_assets"
+  on public.fixed_assets for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert own fixed_assets" on public.fixed_assets;
+create policy "Users can insert own fixed_assets"
+  on public.fixed_assets for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update own fixed_assets" on public.fixed_assets;
+create policy "Users can update own fixed_assets"
+  on public.fixed_assets for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own fixed_assets" on public.fixed_assets;
+create policy "Users can delete own fixed_assets"
+  on public.fixed_assets for delete
+  using (auth.uid() = user_id);
+
+create index if not exists idx_fixed_assets_user_id on public.fixed_assets(user_id);
+create index if not exists idx_fixed_assets_purchase_date on public.fixed_assets(purchase_date);
+
+
 

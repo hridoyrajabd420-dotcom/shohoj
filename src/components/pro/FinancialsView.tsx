@@ -10,6 +10,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   FileSpreadsheet,
+  Landmark,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   BarChart,

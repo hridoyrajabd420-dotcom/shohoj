@@ -152,6 +152,8 @@ export interface Expense {
   expense_date: string;
   date: string; // Compatibility alias with expense_date
   description: string;
+  recurring_expense_id?: string | null;
+  is_recurring_auto?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -163,6 +165,39 @@ export interface ExpenseInput {
   expense_date?: string;
   date?: string;
   description?: string;
+  recurring_expense_id?: string | null;
+  is_recurring_auto?: boolean;
+}
+
+export type RecurringFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export interface RecurringExpense {
+  id: string;
+  user_id: string;
+  title: string;
+  category: ExpenseCategory | string;
+  amount: number;
+  frequency: RecurringFrequency;
+  day_of_month?: number; // 1-31 for monthly
+  day_of_week?: number; // 0-6 for weekly (0=Sun, 1=Mon, etc.)
+  execution_date?: string; // Next or base execution date YYYY-MM-DD
+  is_active: boolean;
+  last_generated_date?: string | null;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RecurringExpenseInput {
+  title: string;
+  category: ExpenseCategory | string;
+  amount: number;
+  frequency: RecurringFrequency;
+  day_of_month?: number;
+  day_of_week?: number;
+  execution_date?: string;
+  is_active?: boolean;
+  notes?: string;
 }
 
 // PART 2 PRO MODELS
@@ -187,7 +222,11 @@ export interface Purchase {
   product_id?: string | null;
   quantity: number;
   unit_price: number;
+  subtotal?: number;
+  discount?: number;
   total_amount: number;
+  paid_amount?: number;
+  due_amount?: number;
   payment_status: 'paid' | 'due';
   purchase_date: string;
   notes?: string;
@@ -316,6 +355,73 @@ export interface BusinessSettings {
   payment_bank_info?: string;
 }
 
+export type FixedAssetCategory =
+  | 'Shop'
+  | 'Land'
+  | 'Vehicle'
+  | 'Machinery'
+  | 'Computer'
+  | 'Equipment'
+  | 'Furniture'
+  | 'Shop Interior'
+  | 'Other';
+
+export type DepreciationMethod = 'straight_line';
+
+export interface FixedAsset {
+  id: string;
+  user_id: string;
+  name: string;
+  category: FixedAssetCategory | string;
+  purchase_date: string; // YYYY-MM-DD
+  purchase_cost: number;
+  useful_life: number;
+  useful_life_unit: 'months' | 'years';
+  salvage_value: number;
+  depreciation_method: DepreciationMethod | string;
+  depreciation_start_date?: string; // YYYY-MM-DD, defaults to purchase_date
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface FixedAssetInput {
+  name: string;
+  category: FixedAssetCategory | string;
+  purchase_date: string;
+  purchase_cost: number;
+  useful_life: number;
+  useful_life_unit: 'months' | 'years';
+  salvage_value: number;
+  depreciation_method?: DepreciationMethod | string;
+  depreciation_start_date?: string;
+  notes?: string;
+}
+
+export interface CalculatedAssetMetrics {
+  usefulLifeMonths: number;
+  totalDepreciableAmount: number;
+  monthlyDepreciation: number;
+  annualDepreciation: number;
+  monthsElapsed: number;
+  remainingMonths: number;
+  accumulatedDepreciation: number;
+  netBookValue: number;
+  isFullyDepreciated: boolean;
+  status: 'active' | 'fully_depreciated';
+}
+
+export interface FixedAssetsSummary {
+  totalGrossAssets: number;
+  totalSalvageValue: number;
+  totalAccumulatedDepreciation: number;
+  totalNetBookValue: number;
+  totalMonthlyDepreciation: number;
+  totalAnnualDepreciation: number;
+  activeAssetsCount: number;
+  fullyDepreciatedCount: number;
+}
+
 export interface DashboardMetrics {
   totalSales: number;
   totalExpenses: number;
@@ -330,6 +436,11 @@ export interface DashboardMetrics {
   totalPurchases: number;
   totalProductsCount: number;
   lowStockProductsCount: number;
+  // Fixed Assets additions
+  grossFixedAssets?: number;
+  accumulatedDepreciation?: number;
+  netFixedAssets?: number;
+  monthlyDepreciation?: number;
 }
 
 export type ViewTab =
@@ -338,6 +449,7 @@ export type ViewTab =
   | 'sales'
   | 'expenses'
   | 'customers'
+  | 'fixed_assets'
   // Pro Tabs
   | 'financials'
   | 'inventory_pro'
