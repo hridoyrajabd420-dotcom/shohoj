@@ -12,9 +12,17 @@ create table if not exists public.profiles (
   phone text,
   business_name text default 'আমার ব্যবসা',
   business_type text default 'Retail',
+  user_type text default 'business',
+  institution_name text,
+  field_of_study text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Safe migrations: Ensure user_type, institution_name and field_of_study exist
+alter table public.profiles add column if not exists user_type text default 'business';
+alter table public.profiles add column if not exists institution_name text;
+alter table public.profiles add column if not exists field_of_study text;
 
 -- 2. Products Table (Inventory items: Part 1 Step 3)
 create table if not exists public.products (

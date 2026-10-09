@@ -21,6 +21,7 @@ import {
   TrendingUp,
   Calculator,
   Landmark,
+  GraduationCap,
 } from 'lucide-react';
 
 interface MobileNavProps {
@@ -38,6 +39,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
 }) => {
   const { profile, signOut } = useAuth();
   const { lowStockProducts } = useData();
+  const isStudent = profile?.user_type === 'student';
 
   const handleSelect = (tab: ViewTab) => {
     setCurrentTab(tab);
@@ -45,7 +47,11 @@ export const MobileNav: React.FC<MobileNavProps> = ({
   };
 
   const coreNavItems = [
-    { id: 'dashboard' as ViewTab, labelBn: 'ড্যাশবোর্ড', icon: LayoutDashboard },
+    {
+      id: (isStudent ? 'student_dashboard' : 'dashboard') as ViewTab,
+      labelBn: isStudent ? 'শিক্ষার্থী ড্যাশবোর্ড' : 'ড্যাশবোর্ড',
+      icon: isStudent ? GraduationCap : LayoutDashboard,
+    },
     {
       id: 'products' as ViewTab,
       labelBn: 'পণ্য ও স্টক',
@@ -227,7 +233,11 @@ export const MobileNav: React.FC<MobileNavProps> = ({
       {/* Mobile Bottom Quick Navigation Bar */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 py-1.5 px-1 flex items-center justify-around">
         {[
-          { id: 'dashboard' as ViewTab, labelBn: 'ড্যাশবোর্ড', icon: LayoutDashboard },
+          {
+            id: (isStudent ? 'student_dashboard' : 'dashboard') as ViewTab,
+            labelBn: isStudent ? 'ল্যাব' : 'ড্যাশবোর্ড',
+            icon: isStudent ? GraduationCap : LayoutDashboard,
+          },
           { id: 'products' as ViewTab, labelBn: 'পণ্য', icon: Package },
           { id: 'sales' as ViewTab, labelBn: 'বিক্রয়', icon: ShoppingCart },
           { id: 'expenses' as ViewTab, labelBn: 'খরচ', icon: Receipt },

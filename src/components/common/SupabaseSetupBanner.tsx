@@ -55,9 +55,16 @@ create table if not exists public.profiles (
   phone text,
   business_name text,
   business_type text default 'Retail',
+  user_type text default 'business',
+  institution_name text,
+  field_of_study text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+alter table public.profiles add column if not exists user_type text default 'business';
+alter table public.profiles add column if not exists institution_name text;
+alter table public.profiles add column if not exists field_of_study text;
 
 -- 2. Products Table
 create table if not exists public.products (

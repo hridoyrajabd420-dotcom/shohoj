@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { getSupabaseClient, getSupabaseCredentials } from '../lib/supabase';
-import { UserProfile } from '../types';
+import { UserProfile, UserType } from '../types';
 
 interface AuthContextType {
   user: User | null;
@@ -11,12 +11,22 @@ interface AuthContextType {
   isConfigured: boolean;
   isPasswordResetFlow: boolean;
   setIsPasswordResetFlow: (val: boolean) => void;
-  signUp: (email: string, password: string, fullName: string, businessName: string, businessType: string) => Promise<{ error: string | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    fullName: string,
+    businessName: string,
+    businessType: string,
+    userType?: UserType,
+    institutionName?: string,
+    fieldOfStudy?: string
+  ) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   updatePassword: (password: string) => Promise<{ error: string | null }>;
   updateProfile: (data: Partial<UserProfile>) => Promise<{ error: string | null }>;
+  setUserType: (userType: UserType) => Promise<{ error: string | null }>;
   refreshProfile: () => Promise<void>;
   checkConfiguration: () => void;
 }
@@ -55,6 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const loadedProfile: UserProfile = {
           ...(data as UserProfile),
           plan: (data.plan === 'PRO' ? 'PRO' : 'FREE'),
+          user_type: (data.user_type === 'student' ? 'student' : data.user_type === 'business' ? 'business' : undefined),
         };
         setProfile(loadedProfile);
         return loadedProfile;
@@ -67,6 +78,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           phone: '',
           business_name: user?.user_metadata?.business_name || 'আমার ব্যবসা (My Business)',
           business_type: user?.user_metadata?.business_type || 'Retail',
+          user_type: user?.user_metadata?.user_type === 'student' ? 'student' : 'business',
+          institution_name: user?.user_metadata?.institution_name || '',
+          field_of_study: user?.user_metadata?.field_of_study || '',
           plan: 'FREE',
         };
 
@@ -80,6 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const loadedProfile: UserProfile = {
             ...(inserted as UserProfile),
             plan: (inserted.plan === 'PRO' ? 'PRO' : 'FREE'),
+            user_type: (inserted.user_type === 'student' ? 'student' : 'business'),
           };
           setProfile(loadedProfile);
           return loadedProfile;
@@ -159,7 +174,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string,
     fullName: string,
     businessName: string,
-    businessType: string
+    businessType: string,
+    userType: UserType = 'business',
+    institutionName: string = '',
+    fieldOfStudy: string = ''
   ): Promise<{ error: string | null }> => {
     const supabase = getSupabaseClient();
     if (!supabase) {
@@ -176,6 +194,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             full_name: fullName,
             business_name: businessName,
             business_type: businessType,
+            user_type: userType,
+            institution_name: institutionName,
+            field_of_study: fieldOfStudy,
           },
           emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
         },
@@ -194,6 +215,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           phone: '',
           business_name: businessName,
           business_type: businessType,
+          user_type: userType,
+          institution_name: institutionName,
+          field_of_study: fieldOfStudy,
+          plan: 'FREE',
         };
         try {
           await supabase.from('profiles').upsert(newProf);
@@ -322,6 +347,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const setUserType = async (newUserType: UserType): Promise<{ error: string | null }> => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) return { error: 'Not authenticated' };
+
+    try {
+      const updatePayload: Partial<UserProfile> = {
+        user_type: newUserType,
+        updated_at: new Date().toISOString(),
+      };
+
+      // Also set reasonable default business name/type if student
+      if (newUserType === 'student' && (!profile?.business_name || profile.business_name === 'আমার ব্যবসা (My Business)')) {
+        updatePayload.business_name = 'শিক্ষার্থী প্রজেক্ট / ব্যক্তিগত হিসাব (Student Account)';
+        updatePayload.business_type = 'Student / Academic';
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update(updatePayload)
+        .eq('id', user.id);
+
+      if (error) {
+        console.warn('Direct user_type column update failed, retrying upsert or setting local profile state:', error.message);
+      }
+
+      setProfile((prev) => (prev ? { ...prev, ...updatePayload } : null));
+      return { error: null };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to set user mode';
+      return { error: message };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -338,6 +396,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resetPassword,
         updatePassword,
         updateProfile,
+        setUserType,
         refreshProfile,
         checkConfiguration,
       }}

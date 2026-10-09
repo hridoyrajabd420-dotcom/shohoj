@@ -12,10 +12,12 @@ interface NavbarProps {
 
 const TAB_TITLES: Record<ViewTab, { bn: string; en: string }> = {
   dashboard: { bn: 'ড্যাশবোর্ড ওভারভিউ', en: 'Dashboard Overview' },
+  student_dashboard: { bn: 'শিক্ষার্থী ড্যাশবোর্ড ও ল্যাব', en: 'Student Dashboard & Accounting Lab' },
   products: { bn: 'পণ্য ও ইনভেন্টরি', en: 'Products & Inventory' },
   sales: { bn: 'বিক্রয় ও লেনদেন', en: 'Sales & Transactions' },
   expenses: { bn: 'খরচের খাতা', en: 'Expense Tracker' },
   customers: { bn: 'গ্রাহক ও বাকির খাতা', en: 'Customer & Due Ledger' },
+  fixed_assets: { bn: 'স্থায়ী সম্পদ ও অবচয় খাতা', en: 'Fixed Assets & CapEx' },
   financials: { bn: 'লাভ-ক্ষতি ও আর্থিক হিসাব', en: 'Profit & Loss (P&L)' },
   inventory_pro: { bn: 'ইনভেন্টরি ও স্টক মূল্যায়ন', en: 'Inventory & Purchases' },
   payables: { bn: 'বকেয়া ও পাওনাদার খাতা', en: 'Receivables & Payables' },
@@ -30,8 +32,9 @@ const TAB_TITLES: Record<ViewTab, { bn: string; en: string }> = {
 };
 
 export const Navbar: React.FC<NavbarProps> = ({ currentTab, onOpenMobileMenu }) => {
-  const { isConfigured } = useAuth();
+  const { isConfigured, profile } = useAuth();
   const currentTitle = TAB_TITLES[currentTab] || { bn: 'সহজ ব্যবসা', en: 'Shohoj Bebsha' };
+  const isStudent = profile?.user_type === 'student';
 
   return (
     <header className="h-16 bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-20 px-4 sm:px-6 flex items-center justify-between">
@@ -53,6 +56,19 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onOpenMobileMenu }) 
       </div>
 
       <div className="flex items-center gap-2.5 sm:gap-3">
+        {/* User Mode Indicator Badge */}
+        {profile && (
+          <span
+            className={`hidden sm:inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full border ${
+              isStudent
+                ? 'bg-blue-50 text-blue-800 border-blue-200'
+                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            }`}
+          >
+            {isStudent ? 'শিক্ষার্থী মোড (Student)' : 'ব্যবসা মোড (Business)'}
+          </span>
+        )}
+
         {/* Supabase Status Indicator */}
         {isConfigured ? (
           <div

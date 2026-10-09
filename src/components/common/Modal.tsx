@@ -8,6 +8,7 @@ interface ModalProps {
   subtitle?: string;
   children: React.ReactNode;
   maxWidth?: string;
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | 'full' | string;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -17,7 +18,20 @@ export const Modal: React.FC<ModalProps> = ({
   subtitle,
   children,
   maxWidth = 'max-w-lg',
+  size,
 }) => {
+  const effectiveMaxWidth = size
+    ? size === 'sm' ? 'max-w-sm'
+    : size === 'md' ? 'max-w-md'
+    : size === 'lg' ? 'max-w-lg'
+    : size === 'xl' ? 'max-w-xl'
+    : size === '2xl' ? 'max-w-2xl'
+    : size === '3xl' ? 'max-w-3xl'
+    : size === '4xl' ? 'max-w-4xl'
+    : size === '5xl' ? 'max-w-5xl'
+    : size === 'full' ? 'max-w-full'
+    : maxWidth
+    : maxWidth;
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -44,7 +58,7 @@ export const Modal: React.FC<ModalProps> = ({
     >
       <div
         id="modal-content"
-        className={`relative w-full ${maxWidth} bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden my-8 transform transition-all duration-200`}
+        className={`relative w-full ${effectiveMaxWidth} bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden my-8 transform transition-all duration-200`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">

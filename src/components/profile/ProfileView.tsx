@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { useToast } from '../../context/ToastContext';
 import { BUSINESS_TYPES } from '../../lib/formatters';
+import { UserType } from '../../types';
 import {
   User,
   Mail,
@@ -14,6 +15,9 @@ import {
   Building2,
   FileText,
   MapPin,
+  GraduationCap,
+  School,
+  BookOpen,
 } from 'lucide-react';
 
 export const ProfileView: React.FC = () => {
@@ -25,6 +29,9 @@ export const ProfileView: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [businessType, setBusinessType] = useState(BUSINESS_TYPES[0]);
+  const [userType, setUserType] = useState<UserType>('business');
+  const [institutionName, setInstitutionName] = useState('');
+  const [fieldOfStudy, setFieldOfStudy] = useState('');
   const [address, setAddress] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
   const [invoiceFooter, setInvoiceFooter] = useState('');
@@ -38,6 +45,9 @@ export const ProfileView: React.FC = () => {
       setPhone(profile.phone || '');
       setBusinessName(profile.business_name || '');
       setBusinessType(profile.business_type || BUSINESS_TYPES[0]);
+      setUserType(profile.user_type === 'student' ? 'student' : 'business');
+      setInstitutionName(profile.institution_name || '');
+      setFieldOfStudy(profile.field_of_study || '');
     }
     if (businessSettings) {
       setAddress((businessSettings as any).address || '');
@@ -51,25 +61,37 @@ export const ProfileView: React.FC = () => {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (!fullName.trim() || !businessName.trim()) {
-      setErrorMsg('পূর্ণ নাম এবং ব্যবসার নাম প্রদান করা বাধ্যতামূলক');
+    if (!fullName.trim()) {
+      setErrorMsg('পূর্ণ নাম প্রদান করা বাধ্যতামূলক');
+      return;
+    }
+
+    if (userType === 'business' && !businessName.trim()) {
+      setErrorMsg('ব্যবসার নাম প্রদান করা বাধ্যতামূলক');
       return;
     }
 
     setLoading(true);
 
+    const bName = userType === 'student'
+      ? (businessName.trim() || 'শিক্ষার্থী প্রজেক্ট / ব্যক্তিগত হিসাব')
+      : businessName.trim();
+
     const profileRes = await updateProfile({
       full_name: fullName.trim(),
       phone: phone.trim(),
-      business_name: businessName.trim(),
-      business_type: businessType,
+      business_name: bName,
+      business_type: userType === 'student' ? 'Student / Academic' : businessType,
+      user_type: userType,
+      institution_name: institutionName.trim(),
+      field_of_study: fieldOfStudy.trim(),
     });
 
     const settingsRes = await updateBusinessSettings({
       logo_url: logoUrl.trim(),
       invoice_footer: invoiceFooter.trim(),
       currency_symbol: currencySymbol.trim(),
-      ...({ address: address.trim(), business_name: businessName.trim(), phone: phone.trim() } as any),
+      ...({ address: address.trim(), business_name: bName, phone: phone.trim() } as any),
     });
 
     setLoading(false);
@@ -79,7 +101,7 @@ export const ProfileView: React.FC = () => {
     } else if (settingsRes.error) {
       setErrorMsg(settingsRes.error);
     } else {
-      showToast('প্রোফাইল ও ব্যবসার তথ্য সফলভাবে সংরক্ষিত হয়েছে', 'success');
+      showToast('প্রোফাইল ও সেটিংস সফলভাবে সংরক্ষিত হয়েছে', 'success');
     }
   };
 
@@ -104,6 +126,54 @@ export const ProfileView: React.FC = () => {
             </div>
           )}
 
+          {/* User Mode (Student vs Business) Selector */}
+          <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2">
+            <label className="block text-xs font-bold text-slate-800">
+              অ্যাকাউন্টের ধরন / ব্যবহারকারী মোড (Account Mode) *
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setUserType('business')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
+                  userType === 'business'
+                    ? 'border-emerald-600 bg-white shadow-xs text-slate-900 font-bold'
+                    : 'border-slate-200 text-slate-600 hover:bg-white/60'
+                }`}
+              >
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                  userType === 'business' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                }`}>
+                  <Briefcase className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs block">ব্যবসায়ী (Business)</span>
+                  <span className="text-[10px] text-slate-400 font-normal">পূর্ণাঙ্গ ব্যবসা ও সেলস</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setUserType('student')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
+                  userType === 'student'
+                    ? 'border-emerald-600 bg-white shadow-xs text-slate-900 font-bold'
+                    : 'border-slate-200 text-slate-600 hover:bg-white/60'
+                }`}
+              >
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                  userType === 'student' ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-600'
+                }`}>
+                  <GraduationCap className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs block">শিক্ষার্থী (Student)</span>
+                  <span className="text-[10px] text-slate-400 font-normal">অ্যাকাউন্টিং ল্যাব ও কেস</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
           {/* Email read-only */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -127,7 +197,7 @@ export const ProfileView: React.FC = () => {
             {/* Full Name / Owner */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                মালিকের নাম (Owner Name) *
+                {userType === 'student' ? 'শিক্ষার্থীর নাম (Student Name) *' : 'মালিকের নাম (Owner Name) *'}
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -160,18 +230,55 @@ export const ProfileView: React.FC = () => {
             </div>
           </div>
 
+          {/* Student Specific Fields */}
+          {userType === 'student' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  শিক্ষা প্রতিষ্ঠান (Institution Name)
+                </label>
+                <div className="relative">
+                  <School className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    placeholder="যেমন: ঢাকা বিশ্ববিদ্যালয় / ব্র্যাক ইউনিভার্সিটি"
+                    value={institutionName}
+                    onChange={(e) => setInstitutionName(e.target.value)}
+                    className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  বিভাগ / বিষয় (Department / Field of Study)
+                </label>
+                <div className="relative">
+                  <BookOpen className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    placeholder="যেমন: BBA, Accounting, Commerce, Finance"
+                    value={fieldOfStudy}
+                    onChange={(e) => setFieldOfStudy(e.target.value)}
+                    className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Business Name */}
+            {/* Business / Project Name */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                ব্যবসার নাম (Business Name) *
+                {userType === 'student' ? 'প্রজেক্ট / প্রতিষ্ঠানের নাম (Project / Portfolio Name)' : 'ব্যবসার নাম (Business Name) *'}
               </label>
               <div className="relative">
                 <Store className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="text"
-                  required
-                  placeholder="দোকান বা প্রতিষ্ঠানের নাম"
+                  required={userType === 'business'}
+                  placeholder={userType === 'student' ? 'যেমন: তানভীরের স্টাডি প্রজেক্ট' : 'দোকান বা প্রতিষ্ঠানের নাম'}
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                   className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
@@ -182,7 +289,7 @@ export const ProfileView: React.FC = () => {
             {/* Business Type */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                ব্যবসার ধরন (Business Type)
+                {userType === 'student' ? 'প্রজেক্টের ধরন (Project Type)' : 'ব্যবসার ধরন (Business Type)'}
               </label>
               <div className="relative">
                 <Briefcase className="w-4 h-4 text-slate-400 absolute left-3 top-3" />

@@ -10,6 +10,8 @@ export type ExpenseCategory =
 
 export type UserPlan = 'FREE' | 'PRO' | 'free' | 'pro';
 
+export type UserType = 'student' | 'business';
+
 export type SubscriptionPlan = 'free' | 'pro';
 export type SubscriptionStatus = 'active' | 'inactive' | 'expired' | 'pending';
 
@@ -31,6 +33,9 @@ export interface UserProfile {
   phone: string;
   business_name: string;
   business_type: string;
+  user_type?: UserType;
+  institution_name?: string; // Optional for students
+  field_of_study?: string;   // Optional for students
   plan?: UserPlan;
   subscription_status?: SubscriptionStatus;
   subscription_expires_at?: string | null;
@@ -445,6 +450,7 @@ export interface DashboardMetrics {
 
 export type ViewTab =
   | 'dashboard'
+  | 'student_dashboard'
   | 'products'
   | 'sales'
   | 'expenses'

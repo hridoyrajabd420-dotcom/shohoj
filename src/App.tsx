@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
@@ -10,6 +10,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { Navbar } from './components/layout/Navbar';
 import { MobileNav } from './components/layout/MobileNav';
 import { SupabaseSetupBanner } from './components/common/SupabaseSetupBanner';
+import { AssignUserTypeModal } from './components/common/AssignUserTypeModal';
 
 // Auth Modals
 import { AuthModal } from './components/auth/AuthModal';
@@ -18,6 +19,7 @@ import { ResetPasswordModal } from './components/auth/ResetPasswordModal';
 // Views
 import { LandingPage } from './components/landing/LandingPage';
 import { DashboardView } from './components/dashboard/DashboardView';
+import { StudentDashboardView } from './components/dashboard/StudentDashboardView';
 import { ProductsView } from './components/products/ProductsView';
 import { SalesView } from './components/sales/SalesView';
 import { ExpensesView } from './components/expenses/ExpensesView';
@@ -41,9 +43,12 @@ import { ProductFormModal } from './components/products/ProductFormModal';
 import { ExpenseFormModal } from './components/expenses/ExpenseFormModal';
 
 const AppContent: React.FC = () => {
-  const { user, loading, isConfigured } = useAuth();
+  const { user, profile, loading, isConfigured } = useAuth();
   const [currentTab, setCurrentTab] = useState<ViewTab>('dashboard');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+
+  // User Type redirect tracker
+  const [hasRedirectedForUser, setHasRedirectedForUser] = useState<string | null>(null);
 
   // Auth modal states
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -53,6 +58,21 @@ const AppContent: React.FC = () => {
   const [isSaleModalOpen, setIsSaleModalOpen] = useState(false);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+
+  // Automatic redirect based on user_type after successful login / profile load
+  useEffect(() => {
+    if (user && profile && hasRedirectedForUser !== user.id) {
+      if (profile.user_type === 'student') {
+        setCurrentTab('student_dashboard');
+      } else if (profile.user_type === 'business') {
+        // If coming from another session or fresh login, route to business dashboard
+        if (currentTab === 'student_dashboard') {
+          setCurrentTab('dashboard');
+        }
+      }
+      setHasRedirectedForUser(user.id);
+    }
+  }, [user, profile, hasRedirectedForUser, currentTab]);
 
   // Full-screen loading spinner
   if (loading) {
@@ -124,9 +144,18 @@ const AppContent: React.FC = () => {
 
         {/* Main View Container */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 md:pb-8">
-          {/* DAILY BUSINESS VIEWS */}
+          {/* DAILY BUSINESS & STUDENT VIEWS */}
           {currentTab === 'dashboard' && (
             <DashboardView
+              onNavigate={(tab) => setCurrentTab(tab)}
+              onOpenSaleModal={() => setIsSaleModalOpen(true)}
+              onOpenProductModal={() => setIsProductModalOpen(true)}
+              onOpenExpenseModal={() => setIsExpenseModalOpen(true)}
+            />
+          )}
+
+          {currentTab === 'student_dashboard' && (
+            <StudentDashboardView
               onNavigate={(tab) => setCurrentTab(tab)}
               onOpenSaleModal={() => setIsSaleModalOpen(true)}
               onOpenProductModal={() => setIsProductModalOpen(true)}
@@ -192,6 +221,18 @@ const AppContent: React.FC = () => {
 
       {/* Reset password modal if triggered during active session */}
       <ResetPasswordModal />
+
+      {/* Assign User Type Modal if existing user has no user_type set */}
+      <AssignUserTypeModal
+        isOpen={Boolean(user && profile && !profile.user_type)}
+        onAssigned={(assignedType) => {
+          if (assignedType === 'student') {
+            setCurrentTab('student_dashboard');
+          } else {
+            setCurrentTab('dashboard');
+          }
+        }}
+      />
     </div>
   );
 };

@@ -20,6 +20,7 @@ import {
   TrendingUp,
   Calculator,
   Landmark,
+  GraduationCap,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,13 +32,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
   const { profile, signOut } = useAuth();
   const { lowStockProducts } = useData();
 
+  const isStudent = profile?.user_type === 'student';
+
   // Core Management Modules (All 100% Free)
   const coreNavItems = [
     {
-      id: 'dashboard' as ViewTab,
-      labelBn: 'ড্যাশবোর্ড',
-      labelEn: 'Dashboard',
-      icon: LayoutDashboard,
+      id: (isStudent ? 'student_dashboard' : 'dashboard') as ViewTab,
+      labelBn: isStudent ? 'শিক্ষার্থী ড্যাশবোর্ড' : 'ড্যাশবোর্ড',
+      labelEn: isStudent ? 'Student Dashboard' : 'Dashboard',
+      icon: isStudent ? GraduationCap : LayoutDashboard,
     },
     {
       id: 'products' as ViewTab,
@@ -149,18 +152,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
           </div>
         </div>
 
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-          ফুল ভার্সন
+        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+          isStudent ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+        }`}>
+          {isStudent ? 'শিক্ষার্থী' : 'ফুল ভার্সন'}
         </span>
       </div>
 
       {/* Business Snippet */}
       <div className="px-3.5 py-2 mx-3 my-1.5 bg-slate-50 border border-slate-100 rounded-xl">
         <p className="text-xs font-bold text-slate-800 truncate">
-          {profile?.business_name || 'আমার ব্যবসা'}
+          {isStudent
+            ? (profile?.institution_name || profile?.business_name || 'শিক্ষার্থী অ্যাকাউন্ট')
+            : (profile?.business_name || 'আমার ব্যবসা')}
         </p>
         <p className="text-[10px] text-emerald-700 font-medium truncate mt-0.2">
-          {profile?.business_type || 'Retail & Trading'}
+          {isStudent ? (profile?.field_of_study || 'Student / Accounting Lab') : (profile?.business_type || 'Retail & Trading')}
         </p>
       </div>
 
