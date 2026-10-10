@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
+import { StudentProvider } from './context/StudentContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ViewTab } from './types';
 
 // Layout
 import { Sidebar } from './components/layout/Sidebar';
+import { StudentSidebar } from './components/layout/StudentSidebar';
 import { Navbar } from './components/layout/Navbar';
 import { MobileNav } from './components/layout/MobileNav';
 import { SupabaseSetupBanner } from './components/common/SupabaseSetupBanner';
@@ -20,6 +22,11 @@ import { ResetPasswordModal } from './components/auth/ResetPasswordModal';
 import { LandingPage } from './components/landing/LandingPage';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { StudentDashboardView } from './components/dashboard/StudentDashboardView';
+import { AcademicSubjectView } from './components/student/AcademicSubjectView';
+import { StudentPracticeView } from './components/student/StudentPracticeView';
+import { StudentSavedProblemsView } from './components/student/StudentSavedProblemsView';
+import { StudentStudyHistoryView } from './components/student/StudentStudyHistoryView';
+import { ACADEMIC_CURRICULA } from './components/student/curriculaData';
 import { ProductsView } from './components/products/ProductsView';
 import { SalesView } from './components/sales/SalesView';
 import { ExpensesView } from './components/expenses/ExpensesView';
@@ -78,8 +85,15 @@ const AppContent: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
-        <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-xl shadow-lg shadow-emerald-600/20 mb-4 animate-pulse">
-          সহ
+        <div className="p-3 bg-white rounded-2xl border border-slate-200/80 shadow-md mb-4 flex items-center justify-center">
+          <img
+            src="/assets/shohoj-bebsha-logo.png"
+            alt="Shohoj Bebsha Logo"
+            className="h-12 w-auto object-contain animate-pulse"
+            loading="eager"
+            decoding="async"
+            referrerPolicy="no-referrer"
+          />
         </div>
         <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mb-2" />
         <p className="text-xs text-slate-500 font-medium">সহজ ব্যবসা লোড হচ্ছে...</p>
@@ -125,11 +139,18 @@ const AppContent: React.FC = () => {
       {/* Supabase Setup Banner if needs configuration */}
       <SupabaseSetupBanner />
 
-      {/* Desktop & Tablet Sidebar */}
-      <Sidebar
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-      />
+      {/* Desktop & Tablet Sidebar (Switches cleanly between Business & Student) */}
+      {profile?.user_type === 'student' ? (
+        <StudentSidebar
+          currentTab={currentTab}
+          setCurrentTab={setCurrentTab}
+        />
+      ) : (
+        <Sidebar
+          currentTab={currentTab}
+          setCurrentTab={setCurrentTab}
+        />
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 md:pl-64">
@@ -144,9 +165,9 @@ const AppContent: React.FC = () => {
 
         {/* Main View Container */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 md:pb-8">
-          {/* DAILY BUSINESS & STUDENT VIEWS */}
-          {currentTab === 'dashboard' && (
-            <DashboardView
+          {/* STUDENT SUITE VIEWS */}
+          {currentTab === 'student_dashboard' && (
+            <StudentDashboardView
               onNavigate={(tab) => setCurrentTab(tab)}
               onOpenSaleModal={() => setIsSaleModalOpen(true)}
               onOpenProductModal={() => setIsProductModalOpen(true)}
@@ -154,8 +175,83 @@ const AppContent: React.FC = () => {
             />
           )}
 
-          {currentTab === 'student_dashboard' && (
-            <StudentDashboardView
+          {currentTab === 'student_accounting' && (
+            <AcademicSubjectView
+              onNavigate={(tab) => setCurrentTab(tab)}
+              subjectKey="accounting"
+              {...ACADEMIC_CURRICULA.accounting}
+            />
+          )}
+
+          {currentTab === 'student_finance' && (
+            <AcademicSubjectView
+              onNavigate={(tab) => setCurrentTab(tab)}
+              subjectKey="finance"
+              {...ACADEMIC_CURRICULA.finance}
+            />
+          )}
+
+          {currentTab === 'student_economics' && (
+            <AcademicSubjectView
+              onNavigate={(tab) => setCurrentTab(tab)}
+              subjectKey="economics"
+              {...ACADEMIC_CURRICULA.economics}
+            />
+          )}
+
+          {currentTab === 'student_business_math' && (
+            <AcademicSubjectView
+              onNavigate={(tab) => setCurrentTab(tab)}
+              subjectKey="business_math"
+              {...ACADEMIC_CURRICULA.business_math}
+            />
+          )}
+
+          {currentTab === 'student_cost_accounting' && (
+            <AcademicSubjectView
+              onNavigate={(tab) => setCurrentTab(tab)}
+              subjectKey="cost_accounting"
+              {...ACADEMIC_CURRICULA.cost_accounting}
+            />
+          )}
+
+          {currentTab === 'student_management_accounting' && (
+            <AcademicSubjectView
+              onNavigate={(tab) => setCurrentTab(tab)}
+              subjectKey="management_accounting"
+              {...ACADEMIC_CURRICULA.management_accounting}
+            />
+          )}
+
+          {currentTab === 'student_statistics' && (
+            <AcademicSubjectView
+              onNavigate={(tab) => setCurrentTab(tab)}
+              subjectKey="statistics"
+              {...ACADEMIC_CURRICULA.statistics}
+            />
+          )}
+
+          {currentTab === 'student_practice' && (
+            <StudentPracticeView
+              onNavigate={(tab) => setCurrentTab(tab)}
+            />
+          )}
+
+          {currentTab === 'student_saved_problems' && (
+            <StudentSavedProblemsView
+              onNavigate={(tab) => setCurrentTab(tab)}
+            />
+          )}
+
+          {currentTab === 'student_study_history' && (
+            <StudentStudyHistoryView
+              onNavigate={(tab) => setCurrentTab(tab)}
+            />
+          )}
+
+          {/* BUSINESS DASHBOARD & VIEWS (100% UNCHANGED) */}
+          {currentTab === 'dashboard' && (
+            <DashboardView
               onNavigate={(tab) => setCurrentTab(tab)}
               onOpenSaleModal={() => setIsSaleModalOpen(true)}
               onOpenProductModal={() => setIsProductModalOpen(true)}
@@ -243,7 +339,9 @@ export default function App() {
       <ToastProvider>
         <AuthProvider>
           <DataProvider>
-            <AppContent />
+            <StudentProvider>
+              <AppContent />
+            </StudentProvider>
           </DataProvider>
         </AuthProvider>
       </ToastProvider>

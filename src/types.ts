@@ -448,9 +448,33 @@ export interface DashboardMetrics {
   monthlyDepreciation?: number;
 }
 
+export type StudentSubjectTab =
+  | 'student_accounting'
+  | 'student_finance'
+  | 'student_economics'
+  | 'student_business_math'
+  | 'student_cost_accounting'
+  | 'student_management_accounting'
+  | 'student_statistics'
+  | 'student_practice'
+  | 'student_saved_problems'
+  | 'student_study_history';
+
 export type ViewTab =
   | 'dashboard'
   | 'student_dashboard'
+  // Student Specific Academic Tabs
+  | 'student_accounting'
+  | 'student_finance'
+  | 'student_economics'
+  | 'student_business_math'
+  | 'student_cost_accounting'
+  | 'student_management_accounting'
+  | 'student_statistics'
+  | 'student_practice'
+  | 'student_saved_problems'
+  | 'student_study_history'
+  // Business Tabs
   | 'products'
   | 'sales'
   | 'expenses'
@@ -469,4 +493,41 @@ export type ViewTab =
   // Core Tabs
   | 'profile'
   | 'settings';
+
+export interface StudentCalculation {
+  id: string;
+  userId: string;
+  subject: string;
+  topicTitle: string;
+  formulaUsed: string;
+  inputs: Record<string, any>;
+  result: Record<string, any>;
+  summary: string;
+  notes?: string;
+  timestamp: string;
+}
+
+export interface StudentProblem {
+  id: string;
+  userId: string;
+  subject: string;
+  topicTitle: string;
+  question: string;
+  givenData: Record<string, any>;
+  solutionSteps: string[];
+  finalAnswer: string;
+  explanation: string;
+  isFavorite?: boolean;
+  savedAt: string;
+}
+
+export interface StudentStudyHistoryItem {
+  id: string;
+  userId: string;
+  subject: string;
+  topicTitle: string;
+  action: 'studied_topic' | 'ran_calculation' | 'saved_problem' | 'practiced_quiz';
+  description: string;
+  timestamp: string;
+}
 

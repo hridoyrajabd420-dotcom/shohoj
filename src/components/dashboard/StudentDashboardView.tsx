@@ -1,27 +1,26 @@
 import React, { useState } from 'react';
-import { useAuth } from '../../context/AuthContext';
-import { useData } from '../../context/DataContext';
 import { ViewTab } from '../../types';
-import { formatCurrency } from '../../lib/formatters';
+import { useAuth } from '../../context/AuthContext';
+import { useStudent } from '../../context/StudentContext';
 import {
   GraduationCap,
   BookOpen,
-  Calculator,
-  TrendingUp,
-  FileSpreadsheet,
-  Award,
-  CheckCircle2,
   DollarSign,
-  Package,
-  ShoppingCart,
-  Receipt,
-  Users,
-  Landmark,
+  TrendingUp,
+  Calculator,
+  PieChart,
+  BarChart3,
+  Bookmark,
+  History,
   ArrowRight,
-  ExternalLink,
   Sparkles,
-  HelpCircle,
-  Lightbulb,
+  School,
+  CheckCircle2,
+  Clock,
+  Compass,
+  FileText,
+  Star,
+  ChevronRight,
 } from 'lucide-react';
 
 interface StudentDashboardViewProps {
@@ -33,222 +32,282 @@ interface StudentDashboardViewProps {
 
 export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
   onNavigate,
-  onOpenSaleModal,
-  onOpenProductModal,
-  onOpenExpenseModal,
 }) => {
   const { profile } = useAuth();
-  const { sales, expenses, products, customers, fixedAssets } = useData();
+  const { savedProblems, studyHistory, calculations } = useStudent();
+  const [activeSubjectFilter, setActiveSubjectFilter] = useState<string>('all');
 
-  const [activeFormulaTab, setActiveFormulaTab] = useState<'pnl' | 'depr' | 'cogs' | 'markup'>('pnl');
+  const studentName = profile?.full_name || 'শিক্ষার্থী';
+  const institution = profile?.institution_name || 'বাণিজ্য ও ব্যবসায় শিক্ষা বিভাগ';
+  const department = profile?.field_of_study || 'BBA / Accounting / Finance';
 
-  // Compute live metrics from practical learning ledger
-  const totalSalesRevenue = sales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
-  const totalOperatingExpenses = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  const totalProductsCount = products.length;
-  const totalCustomersCount = customers.length;
-  const totalAssetsCount = fixedAssets.length;
-
-  // Learning Modules / Practical Accounting Cases
-  const accountingTopics = [
+  // The 10 Core Academic Sections
+  const academicSections = [
     {
-      titleBn: 'লাভ-ক্ষতি ও মার্জিন বিশ্লেষণ',
-      titleEn: 'Profit & Loss (P&L) Statement',
-      desc: 'বিক্রয়, COGS (বিক্রিত পণ্যের ব্যয়), গ্রস প্রফিট ও নিট মুনাফার সমীকরণ বুঝুন।',
+      id: 'student_accounting' as ViewTab,
+      subjectKey: 'accounting',
+      titleBn: '১. অ্যাকাউন্টিং (হিসাববিজ্ঞান)',
+      titleEn: 'Financial Accounting & Reporting',
+      desc: 'হিসাব সমীকরণ (A = L + OE), দুতরফা দাখিলা, জাবেদা, খতিয়ান, রেওয়ামিল এবং আর্থিক বিবরণী।',
+      icon: BookOpen,
+      badge: 'কোর সাবজেক্ট',
+      badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+      accentColor: 'from-emerald-500 to-teal-600',
+      topicsCount: '১০+ টপিক ও লেকচার নোট',
+    },
+    {
+      id: 'student_finance' as ViewTab,
+      subjectKey: 'finance',
+      titleBn: '২. ফাইন্যান্স (অর্থায়ন)',
+      titleEn: 'Corporate & Managerial Finance',
+      desc: 'অর্থের সময়মূল্য (TVM), বর্তমান ও ভবিষ্যৎ মূল্য, মূলধন বাজেটিং (NPV, IRR), এবং কার্যকরী মূলধন।',
       icon: DollarSign,
-      tab: 'financials' as ViewTab,
-      badge: 'কোর অ্যাকাউন্টিং',
-      color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      badge: 'কোর সাবজেক্ট',
+      badgeColor: 'bg-blue-50 text-blue-800 border-blue-200',
+      accentColor: 'from-blue-500 to-indigo-600',
+      topicsCount: '৮+ টপিক ও ভ্যালুয়েশন',
     },
     {
-      titleBn: 'স্থায়ী সম্পদ ও অবচয় গণনা',
-      titleEn: 'CapEx & Depreciation Accounting',
-      desc: 'সরলরৈখিক (Straight-Line) অবচয় পদ্ধতি, ভগ্নাবশেষ মূল্য (Salvage Value) ও পুস্তক মূল্য (Net Book Value)।',
-      icon: Landmark,
-      tab: 'fixed_assets' as ViewTab,
-      badge: 'CapEx বনাম OpEx',
-      color: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+      id: 'student_economics' as ViewTab,
+      subjectKey: 'economics',
+      titleBn: '৩. অর্থনীতি (Economics)',
+      titleEn: 'Micro & Macro Economics',
+      desc: 'চাহিদা ও যোগান বিধি, স্থিতিস্থাপকতা (Elasticity), বাজার কাঠামো, জিডিপি ও মুদ্রাস্ফীতি।',
+      icon: TrendingUp,
+      badge: 'তাত্ত্বিক ও ফলিত',
+      badgeColor: 'bg-purple-50 text-purple-800 border-purple-200',
+      accentColor: 'from-purple-500 to-violet-600',
+      topicsCount: '৭+ অর্থনৈতিক মডেল',
     },
     {
-      titleBn: 'ইনভেন্টরি মূল্যায়ন ও স্টক হিসাব',
-      titleEn: 'Inventory & Purchases Ledger',
-      desc: 'পণ্য ক্রয়, বিক্রয়মূল্য বনাম ক্রয়মূল্য, রি-অর্ডার লেভেল এবং স্টক ট্র্যাকিং।',
-      icon: Package,
-      tab: 'products' as ViewTab,
-      badge: 'ইনভেন্টরি কন্ট্রোল',
-      color: 'bg-purple-50 text-purple-700 border-purple-200',
-    },
-    {
-      titleBn: 'ব্যবসায়িক ক্যালকুলেটর স্যুট',
-      titleEn: 'Financial Formula Practice',
-      desc: 'ব্রেক-ইভেন পয়েন্ট (BEP), মার্কআপ বনাম মার্জিন, আরওআই (ROI) এবং ক্যাশ ফ্লো ক্যালকুলেটর।',
+      id: 'student_business_math' as ViewTab,
+      subjectKey: 'math',
+      titleBn: '৪. বিজনেস গণিত (Business Math)',
+      titleEn: 'Business Mathematics',
+      desc: 'সরল ও চক্রবৃদ্ধি সুদ, কিস্তি (Annuity), ম্যাট্রিক্স, লাভ-ক্ষতি ও সরলরৈখিক সমীকরণ।',
       icon: Calculator,
-      tab: 'calculators' as ViewTab,
-      badge: 'ইন্টারেক্টিভ টুলস',
-      color: 'bg-amber-50 text-amber-700 border-amber-200',
+      badge: 'গাণিতিক ভিত্তি',
+      badgeColor: 'bg-amber-50 text-amber-800 border-amber-200',
+      accentColor: 'from-amber-500 to-orange-600',
+      topicsCount: '৬+ গাণিতিক ফর্মুলা',
     },
     {
-      titleBn: 'আর্থিক প্রতিবেদন ও ব্যালেন্স শীট',
-      titleEn: 'Financial Statements & Reports',
-      desc: 'ব্যালেন্স শীট, ক্যাশ ফ্লো সারাংশ এবং পর্যায়ভিত্তিক প্রতিবেদন এক্সপোর্ট।',
-      icon: FileSpreadsheet,
-      tab: 'reports' as ViewTab,
-      badge: 'রিপোর্টিং',
-      color: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+      id: 'student_cost_accounting' as ViewTab,
+      subjectKey: 'cost',
+      titleBn: '৫. কস্ট অ্যাকাউন্টিং (Cost Accounting)',
+      titleEn: 'Cost Analysis & Control',
+      desc: 'উৎপাদন ব্যয় বিবরণী (Cost Sheet), ব্রেক-ইভেন পয়েন্ট (BEP), উপাদান ও শ্রম ব্যয় নিয়ন্ত্রণ।',
+      icon: PieChart,
+      badge: 'উৎপাদন হিসাব',
+      badgeColor: 'bg-rose-50 text-rose-800 border-rose-200',
+      accentColor: 'from-rose-500 to-pink-600',
+      topicsCount: '৮+ কস্ট শীট কাঠামো',
     },
     {
-      titleBn: 'গ্রাহক দেনাদার ও পাওনাদার খাতা',
-      titleEn: 'Receivables & Payables Ledger',
-      desc: 'বকেয়া হিসাব, প্রাপ্য ও প্রদেয় খাতা এবং নগদান সমীকরণ।',
-      icon: Users,
-      tab: 'customers' as ViewTab,
-      badge: 'লেজার ম্যানেজমেন্ট',
-      color: 'bg-rose-50 text-rose-700 border-rose-200',
+      id: 'student_management_accounting' as ViewTab,
+      subjectKey: 'management',
+      titleBn: '৬. ম্যানেজমেন্ট অ্যাকাউন্টিং',
+      titleEn: 'Managerial Decision Making',
+      desc: 'বাজেট ও বাজেটীয় নিয়ন্ত্রণ, সিভিপি (CVP) অ্যানালাইসিস, এবং সিদ্ধান্ত গ্রহণ প্রক্রিয়া।',
+      icon: Compass,
+      badge: 'ম্যানেজেরিয়াল',
+      badgeColor: 'bg-teal-50 text-teal-800 border-teal-200',
+      accentColor: 'from-teal-500 to-emerald-600',
+      topicsCount: '৭+ ডিসিশন টুলস',
+    },
+    {
+      id: 'student_statistics' as ViewTab,
+      subjectKey: 'statistics',
+      titleBn: '৭. পরিসংখ্যান (Business Statistics)',
+      titleEn: 'Business Statistics & Probability',
+      desc: 'গড়, মধ্যমা ও প্রচুরক, পরিমিত ব্যবধান, কোরিলেশন, রিগ্রেশন এবং সম্ভাবনা (Probability)।',
+      icon: BarChart3,
+      badge: 'ডেটা বিশ্লেষণ',
+      badgeColor: 'bg-indigo-50 text-indigo-800 border-indigo-200',
+      accentColor: 'from-indigo-500 to-blue-600',
+      topicsCount: '৯+ পরিসংখ্যানিক সূত্র',
+    },
+    {
+      id: 'student_practice' as ViewTab,
+      subjectKey: 'practice',
+      titleBn: '৮. প্র্যাকটিস ও ক্যালকুলেটর (Practice Lab)',
+      titleEn: 'Academic Practice & Calculators',
+      desc: 'সকল বিষয়ের প্রয়োজনীয় গাণিতিক ক্যালকুলেটর, ফর্মুলা শীট ও সমস্যা অনুশীলনী ল্যাব।',
+      icon: Sparkles,
+      badge: 'ইন্টারেক্টিভ ল্যাব',
+      badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+      accentColor: 'from-emerald-600 to-teal-700',
+      topicsCount: '১০+ লাইভ ক্যালকুলেটর',
+    },
+    {
+      id: 'student_saved_problems' as ViewTab,
+      subjectKey: 'saved',
+      titleBn: '৯. সংরক্ষিত সমস্যা (Saved Problems)',
+      titleEn: 'Personal Question Bank & Notes',
+      desc: 'পরীক্ষার প্রস্তুতির জন্য আপনার নিজের সেভ করা গাণিতিক সমস্যা, কেস সমাধান ও রিভিশন নোট।',
+      icon: Bookmark,
+      badge: `${savedProblems.length}টি সেভ করা`,
+      badgeColor: 'bg-amber-50 text-amber-800 border-amber-200',
+      accentColor: 'from-amber-600 to-orange-700',
+      topicsCount: 'ব্যক্তিগত প্রশ্নব্যাংক',
+    },
+    {
+      id: 'student_study_history' as ViewTab,
+      subjectKey: 'history',
+      titleBn: '১০. অধ্যয়ন ইতিহাস (Study History)',
+      titleEn: 'Learning Progress & Log',
+      desc: 'আপনার বিগত দিনের পড়ার ইতিহাস, সমাধানকৃত সমস্যা এবং বিষয়ভিত্তিক পড়াশোনার অগ্রগতি লগ।',
+      icon: History,
+      badge: `${studyHistory.length}টি অ্যাক্টিভিটি`,
+      badgeColor: 'bg-slate-100 text-slate-800 border-slate-200',
+      accentColor: 'from-slate-600 to-slate-800',
+      topicsCount: 'অটোমেটিক স্টাডি লগ',
     },
   ];
 
+  const filteredSections = activeSubjectFilter === 'all'
+    ? academicSections
+    : academicSections.filter((s) => s.subjectKey === activeSubjectFilter);
+
   return (
-    <div className="space-y-6 pb-12 animate-in fade-in duration-200">
-      {/* 1. Student Hero Welcome Banner */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 rounded-3xl text-white p-6 sm:p-8 shadow-xl shadow-emerald-900/10">
-        <div className="relative z-10 max-w-3xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md border border-white/20 text-emerald-100 text-xs font-semibold mb-4">
-            <GraduationCap className="w-4 h-4 text-emerald-300" />
-            <span>শিক্ষার্থী মোড • অ্যাকাউন্টিং ও বিজনেস ল্যাব (Student Learning Lab)</span>
-          </div>
+    <div className="space-y-6 pb-12">
+      {/* 1. Academic Header & Student Welcome Card */}
+      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
+        {/* Subtle decorative background shapes */}
+        <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-1/3 -mb-10 w-48 h-48 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
 
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight leading-tight">
-            স্বাগতম, {profile?.full_name || 'শিক্ষার্থী'}!
-          </h1>
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-semibold">
+              <GraduationCap className="w-4 h-4" />
+              <span>সহজ ব্যবসা অ্যাকাডেমিক শিক্ষার্থী পোর্টাল (Academic Suite)</span>
+            </div>
 
-          <p className="mt-2 text-sm sm:text-base text-emerald-100/90 leading-relaxed">
-            {profile?.institution_name ? (
-              <span>
-                প্রতিষ্ঠান: <strong className="text-white">{profile.institution_name}</strong>
-                {profile.field_of_study && <span> • বিভাগ: <strong className="text-white">{profile.field_of_study}</strong></span>}
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+              স্বাগতম, {studentName}!
+            </h1>
+
+            <div className="flex flex-wrap items-center gap-y-1.5 gap-x-4 text-xs text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <School className="w-3.5 h-3.5 text-emerald-400" />
+                {institution}
               </span>
-            ) : (
-              'সহজ ব্যবসা ল্যাবে বাস্তব অ্যাকাউন্টিং, জার্নাল, লেজার, লাভ-ক্ষতি ও স্থায়ী সম্পদের হিসাব প্র্যাকটিস করুন।'
-            )}
-          </p>
+              <span className="text-slate-600">•</span>
+              <span className="flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-blue-400" />
+                {department}
+              </span>
+            </div>
 
-          {/* Quick Practice Actions */}
-          <div className="mt-6 flex flex-wrap gap-2.5">
-            <button
-              onClick={() => onNavigate('financials')}
-              className="px-4 py-2 bg-white text-emerald-800 hover:bg-emerald-50 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
-            >
-              <DollarSign className="w-4 h-4 text-emerald-600" />
-              <span>লাভ-ক্ষতি বিবরণী দেখুন (P&L)</span>
-            </button>
-
-            <button
-              onClick={() => onNavigate('fixed_assets')}
-              className="px-4 py-2 bg-emerald-900/60 hover:bg-emerald-900/80 text-white border border-white/20 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <Landmark className="w-4 h-4 text-emerald-300" />
-              <span>অবচয় ও স্থায়ী সম্পদ খাতা (CapEx)</span>
-            </button>
-
-            <button
-              onClick={() => onNavigate('calculators')}
-              className="px-4 py-2 bg-emerald-900/60 hover:bg-emerald-900/80 text-white border border-white/20 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <Calculator className="w-4 h-4 text-emerald-300" />
-              <span>ব্যবসায়িক ক্যালকুলেটর</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Decorative background circle */}
-        <div className="absolute -right-12 -bottom-16 w-64 h-64 bg-white/5 rounded-full blur-2xl pointer-events-none" />
-      </div>
-
-      {/* 2. Live Hands-on Project Metrics */}
-      <div>
-        <div className="flex items-center justify-between mb-3 px-1">
-          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <Award className="w-4 h-4 text-emerald-600" />
-            <span>আপনার প্র্যাকটিস প্রজেক্ট সারসংক্ষেপ (Hands-on Ledger Summary)</span>
-          </h2>
-          <span className="text-xs text-slate-500">রিয়েল-টাইম এন্ট্রি সংখ্যা</span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-            <span className="text-[11px] font-semibold text-slate-500 block">মোট বিক্রয় আয়</span>
-            <p className="text-lg font-black text-slate-900 mt-1">{formatCurrency(totalSalesRevenue)}</p>
-            <span className="text-[10px] text-emerald-600 font-medium">{sales.length}টি বিক্রয় এন্ট্রি</span>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
+              বাণিজ্য শাখার শিক্ষার্থীদের জন্য একটি পূর্ণাঙ্গ অ্যাকাডেমিক ল্যাব — হিসাববিজ্ঞান, ফাইন্যান্স, অর্থনীতি,
+              ব্যবসায়িক গণিত, কস্ট ও ম্যানেজমেন্ট অ্যাকাউন্টিং এবং পরিসংখ্যানের বিষয়ভিত্তিক থিওরি, ফর্মুলা ও প্র্যাকটিস।
+            </p>
           </div>
 
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-            <span className="text-[11px] font-semibold text-slate-500 block">মোট পরিচালন ব্যয়</span>
-            <p className="text-lg font-black text-rose-600 mt-1">{formatCurrency(totalOperatingExpenses)}</p>
-            <span className="text-[10px] text-slate-500 font-medium">{expenses.length}টি খরচ এন্ট্রি</span>
-          </div>
-
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-            <span className="text-[11px] font-semibold text-slate-500 block">নিবন্ধিত পণ্য ক্যাটালগ</span>
-            <p className="text-lg font-black text-slate-900 mt-1">{totalProductsCount}টি পণ্য</p>
-            <span className="text-[10px] text-slate-500 font-medium">ইনভেন্টরি আইটেম</span>
-          </div>
-
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-            <span className="text-[11px] font-semibold text-slate-500 block">গ্রাহক ও বাকি খাতা</span>
-            <p className="text-lg font-black text-slate-900 mt-1">{totalCustomersCount} জন</p>
-            <span className="text-[10px] text-slate-500 font-medium">প্রাপ্য হিসাব</span>
-          </div>
-
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs col-span-2 sm:col-span-1">
-            <span className="text-[11px] font-semibold text-slate-500 block">স্থায়ী সম্পদ (CapEx)</span>
-            <p className="text-lg font-black text-slate-900 mt-1">{totalAssetsCount}টি সম্পদ</p>
-            <span className="text-[10px] text-indigo-600 font-medium">অবচয় কার্যকর</span>
+          {/* Quick Stat Pill */}
+          <div className="grid grid-cols-3 md:grid-cols-1 gap-2.5 shrink-0 bg-white/5 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-white/10">
+            <div className="text-center md:text-left">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">কোর বিষয়</span>
+              <span className="text-lg sm:text-xl font-black text-emerald-400">৭ টি</span>
+            </div>
+            <div className="text-center md:text-left">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">সংরক্ষিত সমস্যা</span>
+              <span className="text-lg sm:text-xl font-black text-amber-300">{savedProblems.length} টি</span>
+            </div>
+            <div className="text-center md:text-left">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">স্টাডি হিস্ট্রি</span>
+              <span className="text-lg sm:text-xl font-black text-blue-300">{studyHistory.length} টি</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 3. Core Accounting Learning Modules */}
+      {/* 2. Quick Action / Direct Link Tabs */}
+      <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1 no-scrollbar">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onNavigate('student_practice')}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+          >
+            <Calculator className="w-3.5 h-3.5" />
+            <span>প্র্যাকটিস ও ফর্মুলা ল্যাব</span>
+          </button>
+          <button
+            onClick={() => onNavigate('student_saved_problems')}
+            className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer shrink-0"
+          >
+            <Bookmark className="w-3.5 h-3.5 text-amber-600" />
+            <span>সংরক্ষিত প্রশ্নব্যাংক ({savedProblems.length})</span>
+          </button>
+          <button
+            onClick={() => onNavigate('student_study_history')}
+            className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer shrink-0"
+          >
+            <History className="w-3.5 h-3.5 text-blue-600" />
+            <span>পড়ার ইতিহাস ({studyHistory.length})</span>
+          </button>
+        </div>
+
+        <button
+          onClick={() => onNavigate('profile')}
+          className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 shrink-0 cursor-pointer"
+        >
+          <span>প্রোফাইল সেটিংস</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* 3. The 10 Academic Sections Grid */}
       <div>
-        <div className="flex items-center justify-between mb-3 px-1">
-          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-emerald-600" />
-            <span>অ্যাকাউন্টিং মডিউল ও প্র্যাকটিস ল্যাব (Accounting Learning Modules)</span>
-          </h2>
-          <span className="text-xs text-slate-500">সরাসরি ডেটা এন্ট্রি ও বিশ্লেষণ করুন</span>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+              প্রধান অ্যাকাডেমিক বিভাগসমূহ (Academic Modules)
+            </h2>
+            <p className="text-xs text-slate-500">
+              যে বিষয়ের থিওরি, ফর্মুলা ও সমস্যা সমাধান অনুশীলন করতে চান সেটি নির্বাচন করুন
+            </p>
+          </div>
+          <span className="text-xs font-bold text-slate-400 hidden sm:block">মোট ১০টি সেকশন</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {accountingTopics.map((topic, idx) => {
-            const Icon = topic.icon;
+          {filteredSections.map((sec, idx) => {
+            const Icon = sec.icon;
             return (
               <div
-                key={idx}
-                onClick={() => onNavigate(topic.tab)}
-                className="bg-white p-5 rounded-2xl border border-slate-200/80 hover:border-emerald-300 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between group"
+                key={sec.id}
+                onClick={() => onNavigate(sec.id)}
+                className="bg-white p-5 rounded-2xl border border-slate-200/80 hover:border-emerald-400 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col justify-between group relative overflow-hidden"
               >
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${sec.accentColor} text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform`}>
                       <Icon className="w-5 h-5" />
                     </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${topic.color}`}>
-                      {topic.badge}
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${sec.badgeColor}`}>
+                      {sec.badge}
                     </span>
                   </div>
 
                   <h3 className="font-bold text-sm text-slate-900 group-hover:text-emerald-700 transition-colors">
-                    {topic.titleBn}
+                    {sec.titleBn}
                   </h3>
-                  <p className="text-[11px] text-slate-400 font-medium mt-0.5">{topic.titleEn}</p>
+                  <p className="text-[11px] text-slate-400 font-medium">{sec.titleEn}</p>
 
-                  <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                    {topic.desc}
+                  <p className="text-xs text-slate-600 mt-2.5 leading-relaxed line-clamp-2">
+                    {sec.desc}
                   </p>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-700">
-                  <span>অনুশীলন শুরু করুন</span>
-                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                  <span className="text-[11px] text-slate-400 font-medium">{sec.topicsCount}</span>
+                  <span className="font-bold text-emerald-700 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                    <span>প্রবেশ করুন</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </span>
                 </div>
               </div>
             );
@@ -256,131 +315,147 @@ export const StudentDashboardView: React.FC<StudentDashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 4. Interactive Accounting Formula Guide for Students */}
-      <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+      {/* 4. Recent Saved Problems Preview & Recent Study History */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Saved Problems Widget */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div>
-            <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
-              <Lightbulb className="w-4 h-4 text-amber-500" />
-              <span>প্রয়োজনীয় অ্যাকাউন্টিং ও ব্যবসায়িক সূত্রাবলি (Key Accounting Formulas)</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              পরীক্ষা, অ্যাসাইনমেন্ট ও বাস্তব ব্যবসার হিসাব রাখার মৌলিক সূত্রসমূহ
-            </p>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
+                  <Bookmark className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">সংরক্ষিত সমস্যা ও কেস</h3>
+                  <p className="text-[10px] text-slate-500">আপনার ব্যক্তিগত প্রশ্নব্যাংক</p>
+                </div>
+              </div>
+              <button
+                onClick={() => onNavigate('student_saved_problems')}
+                className="text-xs font-bold text-amber-700 hover:text-amber-800 cursor-pointer"
+              >
+                সবগুলো দেখুন
+              </button>
+            </div>
+
+            <div className="space-y-2.5 mt-3">
+              {savedProblems.slice(0, 3).map((prob) => (
+                <div
+                  key={prob.id}
+                  onClick={() => onNavigate('student_saved_problems')}
+                  className="p-3 bg-slate-50 hover:bg-amber-50/50 rounded-xl border border-slate-100 hover:border-amber-200 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white text-slate-700 border border-slate-200">
+                      {prob.subject}
+                    </span>
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {new Date(prob.savedAt).toLocaleDateString('bn-BD')}
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-800 mt-1.5 truncate">
+                    {prob.topicTitle}
+                  </h4>
+                  <p className="text-[11px] text-slate-600 line-clamp-1 mt-0.5">
+                    {prob.question}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              onClick={() => setActiveFormulaTab('pnl')}
-              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeFormulaTab === 'pnl' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              লাভ-ক্ষতি (P&L)
-            </button>
-            <button
-              onClick={() => setActiveFormulaTab('depr')}
-              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeFormulaTab === 'depr' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              অবচয় (Depreciation)
-            </button>
-            <button
-              onClick={() => setActiveFormulaTab('cogs')}
-              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeFormulaTab === 'cogs' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              COGS ও স্টক
-            </button>
-            <button
-              onClick={() => setActiveFormulaTab('markup')}
-              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeFormulaTab === 'markup' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              মার্জিন বনাম মার্কআপ
-            </button>
-          </div>
+          <button
+            onClick={() => onNavigate('student_saved_problems')}
+            className="w-full mt-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-colors cursor-pointer"
+          >
+            প্রশ্নব্যাংক ওপেন করুন ({savedProblems.length} টি সমস্যা)
+          </button>
         </div>
 
-        {/* Formula Details */}
-        {activeFormulaTab === 'pnl' && (
-          <div className="bg-slate-50 p-4 rounded-xl space-y-2.5 text-xs text-slate-700">
-            <div className="font-mono bg-white p-3 rounded-lg border border-slate-200 text-emerald-800 font-bold">
-              গ্রস প্রফিট (Gross Profit) = মোট বিক্রয় (Total Sales) − বিক্রিত পণ্যের ব্যয় (COGS)
+        {/* Study History Widget */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+                  <History className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">অধ্যয়ন ইতিহাস ও অগ্রগতি লগ</h3>
+                  <p className="text-[10px] text-slate-500">আপনার সাম্প্রতিক পড়াশোনা</p>
+                </div>
+              </div>
+              <button
+                onClick={() => onNavigate('student_study_history')}
+                className="text-xs font-bold text-blue-700 hover:text-blue-800 cursor-pointer"
+              >
+                পূর্ণাঙ্গ হিস্ট্রি
+              </button>
             </div>
-            <div className="font-mono bg-white p-3 rounded-lg border border-slate-200 text-emerald-800 font-bold">
-              নিট লাভ (Net Profit) = গ্রস প্রফিট − পরিচালন ব্যয় (OpEx) − অবচয় খরচ (Depreciation)
-            </div>
-            <p className="text-slate-500 pt-1">
-              • মূলধনী ব্যয় (CapEx) একবারে পরিচালন ব্যয়ে অন্তর্ভুক্ত হয় না, বরং অবচয়ের মাধ্যমে সময়ের সাথে সাথে চার্জ করা হয়।
-            </p>
-          </div>
-        )}
 
-        {activeFormulaTab === 'depr' && (
-          <div className="bg-slate-50 p-4 rounded-xl space-y-2.5 text-xs text-slate-700">
-            <div className="font-mono bg-white p-3 rounded-lg border border-slate-200 text-indigo-800 font-bold">
-              মাসিক অবচয় (Monthly Depreciation) = (ক্রয়মূল্য − ভগ্নাবশেষ মূল্য) ÷ আয়ুষ্কাল (মাসে)
+            <div className="space-y-2.5 mt-3">
+              {studyHistory.slice(0, 3).map((hist) => (
+                <div
+                  key={hist.id}
+                  className="p-3 bg-slate-50 rounded-xl border border-slate-100"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-bold text-blue-700">
+                      {hist.subject}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {new Date(hist.timestamp).toLocaleDateString('bn-BD')}
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-800 mt-1">
+                    {hist.topicTitle}
+                  </h4>
+                  <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                    {hist.description}
+                  </p>
+                </div>
+              ))}
             </div>
-            <div className="font-mono bg-white p-3 rounded-lg border border-slate-200 text-indigo-800 font-bold">
-              পুস্তক মূল্য (Net Book Value) = ক্রয়মূল্য − পুঞ্জীভূত অবচয় (Accumulated Depreciation)
-            </div>
-            <p className="text-slate-500 pt-1">
-              • পুঞ্জীভূত অবচয় বাদ দেওয়ার পর নিট বুক ভ্যালু কখনোই ভগ্নাবশেষ মূল্যের (Salvage Value) নিচে নামতে পারবে না।
-            </p>
           </div>
-        )}
 
-        {activeFormulaTab === 'cogs' && (
-          <div className="bg-slate-50 p-4 rounded-xl space-y-2.5 text-xs text-slate-700">
-            <div className="font-mono bg-white p-3 rounded-lg border border-slate-200 text-purple-800 font-bold">
-              COGS = প্রারম্ভিক স্টক + ক্রয়কৃত পণ্যের ব্যয় − সমাপনী স্টক
-            </div>
-            <p className="text-slate-500 pt-1">
-              • সহজ ব্যবসায় প্রতিটি বিক্রয়ের সাথে সাথে সংশ্লিষ্ট পণ্যের ক্রয়মূল্যের ভিত্তিতে তাৎক্ষণিকভাবে COGS স্বয়ংক্রিয়ভাবে হিসাব হয়।
-            </p>
-          </div>
-        )}
-
-        {activeFormulaTab === 'markup' && (
-          <div className="bg-slate-50 p-4 rounded-xl space-y-2.5 text-xs text-slate-700">
-            <div className="font-mono bg-white p-3 rounded-lg border border-slate-200 text-amber-900 font-bold">
-              প্রফিট মার্জিন (%) = (লাভ ÷ বিক্রয়মূল্য) × ১০০
-            </div>
-            <div className="font-mono bg-white p-3 rounded-lg border border-slate-200 text-amber-900 font-bold">
-              মার্কআপ (%) = (লাভ ÷ ক্রয়মূল্য) × ১০০
-            </div>
-            <p className="text-slate-500 pt-1">
-              • ক্রয়মূল্য ১০০ টাকা এবং বিক্রয়মূল্য ১২৫ টাকা হলে: লাভ ২৫ টাকা, মার্কআপ ২৫%, কিন্তু মার্জিন ২০%।
-            </p>
-          </div>
-        )}
+          <button
+            onClick={() => onNavigate('student_study_history')}
+            className="w-full mt-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 transition-colors cursor-pointer"
+          >
+            সম্পূর্ণ স্টাডি হিস্ট্রি দেখুন ({studyHistory.length} টি রেকর্ড)
+          </button>
+        </div>
       </div>
 
       {/* 5. Switch to Business Mode Shortcut */}
       <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0">
-            সহ
+          <div className="relative flex items-center justify-center p-1 bg-white rounded-xl border border-emerald-200 shadow-2xs shrink-0">
+            <img
+              src="/assets/shohoj-bebsha-logo.png"
+              alt="Shohoj Bebsha Logo"
+              className="h-8 w-auto object-contain"
+              loading="lazy"
+              decoding="async"
+              referrerPolicy="no-referrer"
+            />
           </div>
           <div>
             <h4 className="text-xs sm:text-sm font-bold text-slate-900">
               বাস্তব ব্যবসা পরিচালনা করতে চান?
             </h4>
             <p className="text-[11px] text-slate-600">
-              আপনি যেকোনো সময় আপনার প্রোফাইল সেটিংস থেকে 'ব্যবসা মোড' (Business Mode)-এ সুইচ করতে পারবেন।
+              প্রোফাইল সেটিংস থেকে যেকোনো সময় 'ব্যবসায়ী মোড' (Business Mode)-এ সুইচ করে পণ্যের স্টক, সেলস ও ইনভয়েস পরিচালনা করতে পারবেন।
             </p>
           </div>
         </div>
 
         <button
           onClick={() => onNavigate('profile')}
-          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0 cursor-pointer"
+          className="px-4 py-2 bg-white hover:bg-emerald-100/50 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-300 transition-colors shrink-0 cursor-pointer shadow-2xs"
         >
-          প্রোফাইল সেটিংস
+          মোড পরিবর্তন করুন
         </button>
       </div>
     </div>

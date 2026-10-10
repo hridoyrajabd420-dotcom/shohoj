@@ -142,17 +142,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, setCurrentTab }) =
     <aside className="w-64 bg-white border-r border-slate-200/80 flex flex-col shrink-0 h-screen sticky top-0 hidden md:flex">
       {/* Brand Header */}
       <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 text-white flex items-center justify-center font-bold text-base shadow-sm shadow-emerald-600/20">
-            সহ
+        <a
+          href="/"
+          className="flex items-center gap-2.5 group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-xl min-w-0"
+          aria-label="Shohoj Bebsha Home"
+        >
+          <div className="relative flex items-center justify-center p-1 bg-white rounded-xl border border-slate-200/80 shadow-2xs group-hover:border-emerald-300 transition-colors shrink-0">
+            <img
+              src="/assets/shohoj-bebsha-logo.png"
+              alt="Shohoj Bebsha Logo"
+              className="h-9 w-auto object-contain transition-transform group-hover:scale-105 duration-200"
+              loading="eager"
+              decoding="async"
+              referrerPolicy="no-referrer"
+            />
           </div>
-          <div className="overflow-hidden">
-            <h1 className="font-bold text-sm text-slate-900 leading-none truncate">সহজ ব্যবসা</h1>
-            <p className="text-[10px] text-slate-500 truncate mt-0.5">Shohoj Bebsha</p>
+          <div className="overflow-hidden min-w-0">
+            <h1 className="font-bold text-sm text-slate-900 leading-tight truncate group-hover:text-emerald-700 transition-colors">
+              সহজ ব্যবসা
+            </h1>
+            <p className="text-[10px] text-slate-500 truncate">Shohoj Bebsha</p>
           </div>
-        </div>
+        </a>
 
-        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${
           isStudent ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'
         }`}>
           {isStudent ? 'শিক্ষার্থী' : 'ফুল ভার্সন'}

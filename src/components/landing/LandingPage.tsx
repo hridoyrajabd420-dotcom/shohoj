@@ -28,22 +28,35 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 text-slate-900 flex flex-col">
       {/* Top Navbar */}
-      <header className="border-b border-slate-200/80 bg-white/90 backdrop-blur-md sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xl shadow-md shadow-emerald-600/20">
-              সহ
+      <header className="border-b border-slate-200/80 bg-white/95 backdrop-blur-md sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 sm:h-20 flex items-center justify-between">
+          <a
+            href="/"
+            className="flex items-center gap-3 sm:gap-3.5 group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-xl"
+            aria-label="Shohoj Bebsha Home"
+          >
+            <div className="relative flex items-center justify-center p-1.5 bg-white rounded-xl border border-slate-200/80 shadow-xs group-hover:border-emerald-300 transition-colors">
+              <img
+                src="/assets/shohoj-bebsha-logo.png"
+                alt="Shohoj Bebsha Logo"
+                className="h-9 sm:h-11 w-auto object-contain transition-transform group-hover:scale-105 duration-200"
+                loading="eager"
+                decoding="async"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-lg text-slate-900 tracking-tight">সহজ ব্যবসা</span>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="font-bold text-lg sm:text-xl text-slate-900 tracking-tight leading-none">
+                  সহজ ব্যবসা
+                </span>
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
                   Shohoj Bebsha
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 hidden sm:block">সহজভাবে ব্যবসা পরিচালনা করুন</p>
+              <p className="text-[11px] text-slate-500 hidden sm:block mt-0.5">সহজভাবে ব্যবসা পরিচালনা করুন</p>
             </div>
-          </div>
+          </a>
 
           <div className="flex items-center gap-3">
             <a
